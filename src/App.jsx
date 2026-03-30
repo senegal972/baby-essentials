@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const G = () => (
   <style>{`
@@ -2203,9 +2204,14 @@ export default function App(){
   const auth = useAuth();
 
   /* Si pas encore de session → écran d'accueil */
-  if (!auth.session) return (<><G/><WelcomeScreen auth={auth}/></>);
+  if (!auth.session) return (<><G/><WelcomeScreen auth={auth}/><SpeedInsights /></>);
 
-  return <MainApp auth={auth}/>;
+  return (
+    <>
+      <MainApp auth={auth}/>
+      <SpeedInsights />
+    </>
+  );
 }
 
 /* ── Application principale (rendue seulement si session active) ── */
