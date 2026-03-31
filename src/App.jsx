@@ -210,13 +210,20 @@ function useAuth() {
 
 /* ══════ WELCOME SCREEN ══════ */
 function WelcomeScreen({ auth }) {
-  const [view,  setView]  = useState('home'); // home | account
-  const [code,  setCode]  = useState('');
-  const [fname, setFname] = useState('');
-  const [error, setError] = useState('');
+  const [code,   setCode]   = useState('');
+  const [fname,  setFname]  = useState('');
+  const [error,  setError]  = useState('');
+  const [loading, setLoading] = useState(false);
   const codeRef = useRef(null);
 
-  useEffect(() => { if (view==='account') setTimeout(()=>codeRef.current?.focus(),200); }, [view]);
+  useEffect(() => { setTimeout(()=>codeRef.current?.focus(), 400); }, []);
+
+  async function handleLogin() {
+    if (code.length < 4) { setError("Le code famille doit contenir au moins 4 caractères."); return; }
+    setLoading(true); setError('');
+    const r = await auth.loginAccount(code, fname);
+    if (!r.ok) { setError(r.error); setLoading(false); }
+  }
 
   if (auth.loading) return (
     <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"linear-gradient(140deg,#5BBEC2,#7DAF9E,#F09E72)",gap:16}}>
@@ -228,134 +235,120 @@ function WelcomeScreen({ auth }) {
     </div>
   );
 
-  /* ── VUE ACCUEIL ── */
-  if (view === 'home') return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#5BBEC2 0%,#7DAF9E 50%,#F09E72 100%)",display:"flex",flexDirection:"column"}}>
-      {/* Hero */}
-      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 24px 20px",textAlign:"center",position:"relative",overflow:"hidden"}}>
-        {[{w:160,t:"-40px",l:"-40px"},{w:100,t:"10%",r:"-30px"},{w:200,b:"-60px",l:"50%",ml:"-100px"}].map((b,i)=>(
-          <div key={i} style={{position:"absolute",width:b.w,height:b.w,borderRadius:"50%",background:"rgba(255,255,255,.08)",...b}}/>
-        ))}
-        <div style={{width:80,height:80,borderRadius:20,background:"rgba(255,255,255,.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:42,marginBottom:18,boxShadow:"0 8px 24px rgba(0,0,0,.15)"}}>
-          👶
-        </div>
-        <h1 style={{fontFamily:"var(--fs)",fontSize:34,color:"var(--wh)",lineHeight:1.15,marginBottom:8}}>
-          Baby<br/><em>Essentials</em>
-        </h1>
-        <p style={{fontSize:13,color:"rgba(255,255,255,.8)",lineHeight:1.6,maxWidth:280}}>
-          Préparez sereinement l'arrivée de votre bébé — listes, budget, aides CAF et suivi en un seul endroit.
-        </p>
-      </div>
+  /* ── ÉCRAN DE CONNEXION UNIQUE ── */
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#5BBEC2 0%,#7DAF9E 50%,#F09E72 100%)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+      {/* Bulles décoratives */}
+      <div style={{position:"fixed",width:180,height:180,borderRadius:"50%",top:"-50px",left:"-50px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
+      <div style={{position:"fixed",width:120,height:120,borderRadius:"50%",top:"8%",right:"-40px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
 
-      {/* Choix du mode */}
-      <div style={{padding:"0 20px 48px"}}>
-        {/* ── Compte famille ── */}
-        <div style={{background:"var(--wh)",borderRadius:"var(--r4)",padding:"22px 20px",marginBottom:12,boxShadow:"0 8px 32px rgba(0,0,0,.18)"}}>
-          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14}}>
-            <span style={{fontSize:28}}>👨‍👩‍👧</span>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"40px 20px 48px",position:"relative",zIndex:1}}>
+
+        {/* Logo + titre */}
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{width:76,height:76,borderRadius:20,background:"rgba(255,255,255,.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:40,margin:"0 auto 14px",boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>
+            👶
+          </div>
+          <h1 style={{fontFamily:"var(--fs)",fontSize:32,color:"var(--wh)",lineHeight:1.15,marginBottom:6}}>
+            Baby<br/><em>Essentials</em>
+          </h1>
+          <p style={{fontSize:12.5,color:"rgba(255,255,255,.78)",lineHeight:1.6,maxWidth:260}}>
+            Préparez sereinement l'arrivée de votre bébé — listes, budget, aides CAF et suivi.
+          </p>
+        </div>
+
+        {/* CARTE CONNEXION */}
+        <div style={{background:"var(--wh)",borderRadius:"var(--r4)",padding:"26px 22px",width:"100%",maxWidth:420,boxShadow:"0 16px 48px rgba(0,0,0,.22)",marginBottom:14}}>
+
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
+            <span style={{fontSize:26}}>🔐</span>
             <div>
-              <p style={{fontSize:15,fontWeight:800,color:"var(--g800)"}}>Compte Famille</p>
-              <p style={{fontSize:11,color:"var(--g400)"}}>Synchronisé · Multi-appareils · Partageable</p>
+              <h2 style={{fontFamily:"var(--fs)",fontSize:20,lineHeight:1.2}}>Connexion</h2>
+              <p style={{fontSize:11,color:"var(--g400)"}}>Compte famille · Synchronisé · Multi-appareils</p>
             </div>
           </div>
-          {[
-            {e:"🔄",t:"Données synchronisées entre tous vos appareils"},
-            {e:"👥",t:"Partagez avec votre partenaire via un code famille"},
-            {e:"☁️",t:"Sauvegarde automatique dans le cloud"},
-            {e:"🔒",t:"Protégé par votre code famille unique"},
-          ].map(r=>(
-            <div key={r.e} style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-              <span style={{fontSize:14}}>{r.e}</span>
-              <span style={{fontSize:11.5,color:"var(--g600)"}}>{r.t}</span>
-            </div>
-          ))}
-          <button className="btn bp" style={{width:"100%",marginTop:14,fontSize:14,padding:"12px"}}
-            onClick={()=>setView('account')}>
-            Créer / Rejoindre un compte famille →
-          </button>
-        </div>
 
-        {/* ── Mode invité ── */}
-        <button onClick={auth.loginGuest} style={{width:"100%",padding:"14px",background:"rgba(255,255,255,.2)",backdropFilter:"blur(8px)",border:"2px solid rgba(255,255,255,.5)",borderRadius:"var(--r2)",cursor:"pointer",fontFamily:"var(--ff)",transition:"all .18s"}}
-          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.3)"}
-          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.2)"}>
-          <p style={{fontSize:13.5,fontWeight:800,color:"var(--wh)",marginBottom:2}}>🕵️ Mode Invité — Sans compte</p>
-          <p style={{fontSize:11,color:"rgba(255,255,255,.75)"}}>Données stockées localement · Idéal pour tester · Aucune inscription</p>
-        </button>
+          <div style={{display:"flex",flexDirection:"column",gap:13}}>
 
-        <p style={{fontSize:10,color:"rgba(255,255,255,.55)",textAlign:"center",marginTop:14,lineHeight:1.6}}>
-          En mode invité, vos données sont stockées uniquement sur cet appareil<br/>et seront perdues si vous videz le cache ou changez de navigateur.
-        </p>
-      </div>
-    </div>
-  );
-
-  /* ── VUE COMPTE ── */
-  return (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#5BBEC2,#7DAF9E)",display:"flex",flexDirection:"column",padding:"0 20px"}}>
-      <div style={{flex:1,display:"flex",flexDirection:"column",justifyContent:"center",maxWidth:440,margin:"0 auto",width:"100%"}}>
-        <button onClick={()=>setView('home')} className="btn bg" style={{color:"rgba(255,255,255,.8)",padding:"8px 0",alignSelf:"flex-start",marginBottom:16}}>← Retour</button>
-
-        <div style={{background:"var(--wh)",borderRadius:"var(--r4)",padding:"26px 22px",boxShadow:"0 12px 40px rgba(0,0,0,.2)"}}>
-          <h2 style={{fontFamily:"var(--fs)",fontSize:22,marginBottom:4}}>Compte Famille</h2>
-          <p style={{fontSize:11.5,color:"var(--g400)",marginBottom:20,lineHeight:1.6}}>
-            Créez un code unique pour votre famille, ou saisissez le code existant pour rejoindre un espace partagé.
-          </p>
-
-          <div style={{display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <label style={{fontSize:10.5,fontWeight:800,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>
-                Code famille <span style={{color:"var(--rd)"}}>*</span>
+            {/* Identifiant */}
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              <label style={{fontSize:10.5,fontWeight:800,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.6}}>
+                Identifiant famille <span style={{color:"var(--rd)"}}>*</span>
               </label>
               <input
                 ref={codeRef}
                 className="inp"
                 value={code}
-                placeholder="ex : MARTIN2025 ou BEBE01"
-                style={{fontSize:16,fontWeight:700,letterSpacing:1,textTransform:"uppercase"}}
-                onChange={e=>{ setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'')); setError(''); }}
-                onKeyDown={e=>e.key==="Enter"&&handleAccount()}
+                placeholder="ex : MARTIN2025"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+                style={{fontSize:17,fontWeight:800,letterSpacing:2,textTransform:"uppercase",padding:"13px 14px"}}
+                onChange={e=>{ setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"")); setError(""); }}
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()}
               />
-              <p style={{fontSize:10,color:"var(--g400)"}}>4 à 16 caractères · lettres et chiffres uniquement · inventez le vôtre</p>
+              <p style={{fontSize:10,color:"var(--g400)"}}>4–16 caractères · lettres et chiffres uniquement</p>
             </div>
 
-            <div style={{display:"flex",flexDirection:"column",gap:4}}>
-              <label style={{fontSize:10.5,fontWeight:800,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Nom de la famille <span style={{color:"var(--g300)",fontWeight:400}}>(optionnel)</span></label>
-              <input className="inp" value={fname} placeholder="ex : Famille Martin" onChange={e=>setFname(e.target.value)}/>
+            {/* Nom famille (optionnel) */}
+            <div style={{display:"flex",flexDirection:"column",gap:5}}>
+              <label style={{fontSize:10.5,fontWeight:800,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.6}}>
+                Nom de la famille <span style={{color:"var(--g300)",fontWeight:400,textTransform:"none"}}>(optionnel)</span>
+              </label>
+              <input
+                className="inp"
+                value={fname}
+                placeholder="ex : Famille Dupont"
+                style={{fontSize:14}}
+                onChange={e=>{ setFname(e.target.value); setError(""); }}
+                onKeyDown={e=>e.key==="Enter"&&handleLogin()}
+              />
             </div>
 
-            {error&&<div style={{padding:"9px 12px",background:"var(--rd-p)",borderRadius:"var(--r1)",border:"1px solid rgba(212,82,82,.3)"}}>
-              <p style={{fontSize:11.5,color:"var(--rd)",fontWeight:600}}>⚠ {error}</p>
-            </div>}
+            {/* Erreur */}
+            {error&&(
+              <div style={{padding:"10px 13px",background:"var(--rd-p)",borderRadius:"var(--r1)",border:"1px solid rgba(212,82,82,.3)"}}>
+                <p style={{fontSize:12,color:"var(--rd)",fontWeight:600}}>⚠ {error}</p>
+              </div>
+            )}
 
-            <button className="btn bp" style={{padding:"13px",fontSize:14,marginTop:4}}
-              onClick={async()=>{ const r=await auth.loginAccount(code,fname); if(!r.ok)setError(r.error); }}>
-              ✓ Accéder à mon espace famille
+            {/* BOUTON SE CONNECTER */}
+            <button
+              className="btn bp"
+              style={{padding:"14px",fontSize:15,fontWeight:800,marginTop:2,boxShadow:"0 6px 20px rgba(91,190,194,.4)",opacity:loading?0.7:1}}
+              disabled={loading}
+              onClick={handleLogin}
+            >
+              {loading ? "⏳ Connexion en cours…" : "🔑 Se connecter"}
             </button>
           </div>
 
-          {/* Info boxes */}
-          <div style={{marginTop:18,display:"flex",flexDirection:"column",gap:8}}>
-            <div style={{padding:"10px 12px",background:"var(--aq-p)",borderRadius:"var(--r1)",border:"1px solid rgba(91,190,194,.3)"}}>
-              <p style={{fontSize:11,color:"#186068",lineHeight:1.6}}>
-                💡 <b>Nouveau compte ?</b> Inventez un code (ex: DUPONT2025) — il sera créé automatiquement lors de votre premier accès.
-              </p>
-            </div>
-            <div style={{padding:"10px 12px",background:"var(--sa-p)",borderRadius:"var(--r1)",border:"1px solid rgba(125,175,158,.3)"}}>
-              <p style={{fontSize:11,color:"#2B6650",lineHeight:1.6}}>
-                👥 <b>Partager avec votre partenaire ?</b> Communiquez-lui le même code — il accèdera aux mêmes données sur son appareil.
-              </p>
-            </div>
+          {/* Info */}
+          <div style={{marginTop:16,padding:"11px 13px",background:"var(--aq-p)",borderRadius:"var(--r1)",border:"1px solid rgba(91,190,194,.3)"}}>
+            <p style={{fontSize:11,color:"#186068",lineHeight:1.65}}>
+              💡 <b>Première fois ?</b> Inventez un identifiant (ex: DUPONT2025) — votre compte est créé automatiquement.<br/>
+              👥 <b>Partenaire ?</b> Même identifiant = mêmes données partagées.
+            </p>
           </div>
         </div>
+
+        {/* Mode sans compte */}
+        <button
+          onClick={auth.loginGuest}
+          style={{width:"100%",maxWidth:420,padding:"13px 16px",background:"rgba(255,255,255,.15)",backdropFilter:"blur(10px)",border:"2px solid rgba(255,255,255,.45)",borderRadius:"var(--r2)",cursor:"pointer",fontFamily:"var(--ff)",transition:"all .18s",textAlign:"center"}}
+          onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,.25)"}
+          onMouseLeave={e=>e.currentTarget.style.background="rgba(255,255,255,.15)"}
+        >
+          <p style={{fontSize:13,fontWeight:800,color:"var(--wh)",marginBottom:2}}>🕵️ Continuer sans compte</p>
+          <p style={{fontSize:10.5,color:"rgba(255,255,255,.72)"}}>Données locales uniquement · aucune inscription</p>
+        </button>
+
+        <p style={{fontSize:9.5,color:"rgba(255,255,255,.45)",textAlign:"center",marginTop:14,lineHeight:1.6,maxWidth:320}}>
+          Sans compte, vos données restent sur cet appareil et peuvent être perdues en cas de nettoyage du navigateur.
+        </p>
       </div>
     </div>
   );
-
-  async function handleAccount() {
-    const r = await auth.loginAccount(code, fname);
-    if (!r.ok) setError(r.error);
-  }
 }
 
 /* ══════ ACCOUNT MODAL (gestion depuis l'app) ══════ */
