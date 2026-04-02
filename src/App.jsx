@@ -96,14 +96,16 @@ const fmtEur = n => n==null?"—":n.toLocaleString("fr-FR",{minimumFractionDigit
 const fmtDate = s => { if(!s)return""; try{return new Date(s).toLocaleDateString("fr-FR",{day:"2-digit",month:"long",year:"numeric"})}catch{return s} };
 const parseAmt = str => { if(str===""||str==null)return null; const n=parseFloat(String(str).replace(",",".")); if(isNaN(n)||n<0||n>9999999)return null; return Math.round(n*100)/100; };
 const effQty = (item, nb=1) => {
-  const raw = typeof item.qty==="number" && item.qty>0 ? item.qty : 1;
-  if (!item.qtyPerBaby || nb<=0) return raw;
+  // qty=0 → 0 (article mis à zéro intentionnellement)
+  // qty=null/undefined → fallback 1 (non renseigné)
+  if (typeof item.qty === "number" && item.qty === 0) return 0;
+  const raw = typeof item.qty === "number" && item.qty > 0 ? item.qty : 1;
+  if (!item.qtyPerBaby || nb <= 0) return raw;
   const byBaby = item.qtyPerBaby * nb;
-  // Si l'article a été édité manuellement et que qty diverge de qtyPerBaby×nb → qty prime
   if (item._rev && byBaby !== raw) return raw;
   return byBaby;
 };
-function calcCatTotal(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; return s+i.price*effQty(i,nb); },0)}
+function calcCatTotal(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); if(q===0)return s; return s+i.price*q; },0)}
 function calcCatToBuy(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); const st=Math.min(typeof i.stock==="number"?i.stock:0,q); return s+i.price*(q-st); },0)}
 
 /* ══════════════════════════════════════════════════════════════
@@ -1379,8 +1381,10 @@ function EcartCard({declaredBudget,totalToBuy,totalValue,totalCAFAids=0}){
 function ItemCard({item,checked,onToggle,onRemove,onEdit,showP=false,nbChildren=1}){
   if(item.isPlaceholder)return(<div className="ic warn" style={{borderStyle:"dashed"}}><p style={{fontSize:12.5,color:"var(--am)",fontWeight:700}}>⚠ Données manquantes</p><p style={{fontSize:11.5,color:"var(--g600)",marginTop:3,lineHeight:1.55}}>{item.desc}</p></div>);
   const qty=effQty(item,nbChildren),stock=Math.min(typeof item.stock==="number"?item.stock:0,qty),toPurchase=Math.max(0,qty-stock);
-  const fullStk=stock>=qty,partStk=stock>0&&stock<qty;
-  const lineVal=item.price!=null?item.price*qty:null,lineBuy=item.price!=null?item.price*toPurchase:null;
+  const fullStk=qty>0&&stock>=qty,partStk=stock>0&&stock<qty;
+  // qty=0 → pas de montant affiché (article mis à zéro intentionnellement)
+  const lineVal=(item.price!=null&&qty>0)?item.price*qty:null;
+  const lineBuy=(item.price!=null&&toPurchase>0)?item.price*toPurchase:null;
   return(<div className={`ic ${checked?"done":""} ${item.missingPrice?"warn":""} ${fullStk&&!checked?"stocked":""}`} style={{position:"relative"}}>
     {item._rev&&<span style={{position:"absolute",top:8,right:8,fontSize:9,padding:"1px 6px",borderRadius:99,background:"var(--aq-p)",color:"var(--aq)",fontWeight:700}}>v{item._rev}</span>}
     <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
@@ -1396,7 +1400,7 @@ function ItemCard({item,checked,onToggle,onRemove,onEdit,showP=false,nbChildren=
           {fullStk&&<span className="tag t-stk">📦 En stock ({stock})</span>}
           {partStk&&<span className="tag t-stk-p">📦 {stock}/{qty} en stock</span>}
         </div>
-        {showP&&item.price!=null&&(<div style={{display:"flex",gap:6,alignItems:"center",marginTop:4,flexWrap:"wrap"}}>
+        {showP&&item.price!=null&&qty>0&&(<div style={{display:"flex",gap:6,alignItems:"center",marginTop:4,flexWrap:"wrap"}}>
           <span style={{fontSize:10.5,color:"var(--g400)"}}>{fmtEur(item.price)} × {qty}</span>
           {lineVal!=null&&<><span style={{fontSize:10,color:"var(--g300)"}}>=</span><span style={{fontSize:11,fontWeight:700,color:"var(--g400)",textDecoration:stock>0?"line-through":"none",padding:"1px 6px",background:"var(--g100)",borderRadius:99}}>{fmtEur(lineVal)}</span></>}
           {stock>0&&toPurchase>0&&<><span style={{fontSize:10,color:"var(--gr)"}}>→</span><span style={{fontSize:11,fontWeight:800,color:"var(--gr)",padding:"1px 7px",background:"var(--gr-p)",borderRadius:99}}>{fmtEur(lineBuy)}</span></>}
@@ -2271,7 +2275,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
               <p style={{fontSize:10.5,color:"var(--g600)",marginTop:1}}>{item.tabTarget==="home"?"🏠 Maison":"🧳 Valise"}{item.store&&` · 🏪 ${item.store}`}</p>
             </div>
             <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
-              {item.price&&effQty(item,nbChildren)&&<span style={{fontSize:11,fontWeight:800,color:"var(--g600)"}}>{fmtEur(item.price*effQty(item,nbChildren))}</span>}
+              {item.price!=null&&effQty(item,nbChildren)>0&&<span style={{fontSize:11,fontWeight:800,color:"var(--g600)"}}>{fmtEur(item.price*effQty(item,nbChildren))}</span>}
               <span style={{fontSize:10,color:"var(--aq)",fontWeight:700}}>Voir →</span>
             </div>
           </button>
