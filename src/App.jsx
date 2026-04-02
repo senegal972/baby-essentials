@@ -222,6 +222,24 @@ function useAuth() {
 }
 
 /* ══════ WELCOME SCREEN ══════ */
+/* ── Bg : fond dégradé partagé (défini HORS WelcomeScreen pour éviter remount au keystroke) ── */
+function WelcomeBg({children}) {
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#5BBEC2 0%,#7DAF9E 50%,#F09E72 100%)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
+      <div style={{position:"fixed",width:180,height:180,borderRadius:"50%",top:"-50px",left:"-50px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
+      <div style={{position:"fixed",width:110,height:110,borderRadius:"50%",top:"12%",right:"-35px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
+      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"36px 20px 48px",position:"relative",zIndex:1}}>
+        <div style={{textAlign:"center",marginBottom:26}}>
+          <div style={{width:70,height:70,borderRadius:18,background:"rgba(255,255,255,.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,margin:"0 auto 12px",boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>👶</div>
+          <h1 style={{fontFamily:"var(--fs)",fontSize:30,color:"var(--wh)",lineHeight:1.15,marginBottom:5}}>Baby<br/><em>Essentials</em></h1>
+          <p style={{fontSize:12,color:"rgba(255,255,255,.75)",lineHeight:1.6,maxWidth:250}}>Préparez sereinement l'arrivée de votre bébé.</p>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function WelcomeScreen({ auth }) {
   const [mode,    setMode]    = useState(null); // null | 'login' | 'register'
   const [code,    setCode]    = useState('');
@@ -254,26 +272,9 @@ function WelcomeScreen({ auth }) {
     </div>
   );
 
-  /* ── FOND COMMUN ── */
-  const Bg = ({children}) => (
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#5BBEC2 0%,#7DAF9E 50%,#F09E72 100%)",display:"flex",flexDirection:"column",overflowY:"auto"}}>
-      <div style={{position:"fixed",width:180,height:180,borderRadius:"50%",top:"-50px",left:"-50px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
-      <div style={{position:"fixed",width:110,height:110,borderRadius:"50%",top:"12%",right:"-35px",background:"rgba(255,255,255,.07)",pointerEvents:"none"}}/>
-      <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"36px 20px 48px",position:"relative",zIndex:1}}>
-        {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:26}}>
-          <div style={{width:70,height:70,borderRadius:18,background:"rgba(255,255,255,.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,margin:"0 auto 12px",boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>👶</div>
-          <h1 style={{fontFamily:"var(--fs)",fontSize:30,color:"var(--wh)",lineHeight:1.15,marginBottom:5}}>Baby<br/><em>Essentials</em></h1>
-          <p style={{fontSize:12,color:"rgba(255,255,255,.75)",lineHeight:1.6,maxWidth:250}}>Préparez sereinement l'arrivée de votre bébé.</p>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-
   /* ── PAGE D'ACCUEIL — choix du mode ── */
   if (!mode) return (
-    <Bg>
+    <WelcomeBg>
       <div style={{width:"100%",maxWidth:400,display:"flex",flexDirection:"column",gap:12}}>
 
         {/* Créer un compte */}
@@ -316,13 +317,13 @@ function WelcomeScreen({ auth }) {
           <p style={{fontSize:12,color:"rgba(255,255,255,.6)",textDecoration:"underline"}}>🕵️ Continuer sans compte (données locales uniquement)</p>
         </button>
       </div>
-    </Bg>
+    </WelcomeBg>
   );
 
   /* ── FORMULAIRE PARTAGÉ (login + register) ── */
   const isReg = mode === 'register';
   return (
-    <Bg>
+    <WelcomeBg>
       <div style={{width:"100%",maxWidth:420}}>
         <button onClick={()=>reset(null)} className="btn bg"
           style={{color:"rgba(255,255,255,.82)",padding:"6px 0",marginBottom:14,display:"flex",alignItems:"center",gap:5,fontSize:13}}>
@@ -445,7 +446,7 @@ function WelcomeScreen({ auth }) {
           </div>
         </div>
       </div>
-    </Bg>
+    </WelcomeBg>
   );
 }
 
@@ -948,7 +949,7 @@ function generateShareText(family, db, cafAids, cl, home, nbChildren) {
   /* Maison */
   t += `🏠 ESSENTIELS MAISON — ${home.stats.done}/${home.stats.total} articles (${home.stats.pct}%)\n`;
   HOME_CATS.forEach(cat=>{
-    const items=[...cat.items,...home.cx.filter(x=>x.cid===cat.id)].filter(i=>!i.isPlaceholder);
+    const items=home.visibleItems(cat.items,cat.id).filter(i=>!i.isPlaceholder);
     if(!items.length) return;
     const done=items.filter(i=>home.ck[i.id]).length;
     const catBuy=home.catToBuy[cat.id]??0;
@@ -1005,7 +1006,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
   /* ── Home rows ── */
   let homeHTML = "";
   HOME_CATS.forEach(cat=>{
-    const items=[...cat.items,...home.cx.filter(x=>x.cid===cat.id)].filter(i=>!i.isPlaceholder);
+    const items=home.visibleItems(cat.items,cat.id).filter(i=>!i.isPlaceholder);
     if(!items.length) return;
     const done=items.filter(i=>home.ck[i.id]).length;
     const catBuy=home.catToBuy[cat.id]??0;
@@ -1294,7 +1295,7 @@ const CLINIC_CATS=[
 const APP_V="v6",OV_KEY="tn_ov_v6",AU_KEY="tn_au_v6",MAX_H=20,MAX_A=200;
 const ED_F=["text","qty","qtyPerBaby","price","stock","priority","urgent","store","desc"];
 const PRI=["high","medium","low"];
-function validateEdit(cur,f){const e=[];for(const k of["id","_appVersion","_history"])if(k in f)e.push(`"${k}" immuable.`);const uk=Object.keys(f).filter(k=>!ED_F.includes(k));if(uk.length)e.push(`Champ(s) inconnu(s): ${uk.join(", ")}.`);if(cur.isPlaceholder)e.push("Placeholder non modifiable.");if("text" in f){const t=String(f.text||"").trim();if(t.length<2)e.push("Nom: 2 car. min.");if(t.length>120)e.push("Nom: 120 car. max.")}if("qty" in f&&f.qty!==null&&(!Number.isInteger(f.qty)||f.qty<1||f.qty>999))e.push("qty: entier 1–999.");if("stock" in f&&f.stock!==null&&(!Number.isInteger(f.stock)||f.stock<0||f.stock>999))e.push("stock: entier 0–999.");if("price" in f&&f.price!==null&&(typeof f.price!=="number"||f.price<0||f.price>99999))e.push("price: 0–99 999.");if("priority" in f&&!PRI.includes(f.priority))e.push(`priority: ${PRI.join(", ")}.`);if("urgent" in f&&typeof f.urgent!=="boolean")e.push("urgent: booléen.");return{valid:e.length===0,errors:e}}
+function validateEdit(cur,f){const e=[];for(const k of["id","_appVersion","_history"])if(k in f)e.push(`"${k}" immuable.`);const uk=Object.keys(f).filter(k=>!ED_F.includes(k));if(uk.length)e.push(`Champ(s) inconnu(s): ${uk.join(", ")}.`);if(cur.isPlaceholder)e.push("Placeholder non modifiable.");if("text" in f){const t=String(f.text||"").trim();if(t.length<2)e.push("Nom: 2 car. min.");if(t.length>120)e.push("Nom: 120 car. max.")}if("qty" in f&&f.qty!==null&&f.qty!==""&&(!Number.isInteger(Number(f.qty))||Number(f.qty)<0||Number(f.qty)>999))e.push("qty: entier 0–999 ou vide.");if("stock" in f&&f.stock!==null&&(!Number.isInteger(f.stock)||f.stock<0||f.stock>999))e.push("stock: entier 0–999.");if("price" in f&&f.price!==null&&(typeof f.price!=="number"||f.price<0||f.price>99999))e.push("price: 0–99 999.");if("priority" in f&&!PRI.includes(f.priority))e.push(`priority: ${PRI.join(", ")}.`);if("urgent" in f&&typeof f.urgent!=="boolean")e.push("urgent: booléen.");return{valid:e.length===0,errors:e}}
 const rdOv=()=>{try{return JSON.parse(localStorage.getItem(OV_KEY)||"{}")}catch{return{}}};
 const wrOv=a=>{const o=rdOv();o[a.id]=a;localStorage.setItem(OV_KEY,JSON.stringify(o))};
 const mgOv=b=>{const p=rdOv()[b.id];return p?{...b,...p}:b};
@@ -1306,20 +1307,26 @@ function useToast(){const[t,sT]=useState([]);const push=useCallback((msg,type="s
 function useCL(key,cats,nbChildren=1){
   const[ck,setCk]=useState(()=>{try{return JSON.parse(localStorage.getItem(key)||"{}")}catch{return{}}});
   const[cx,setCx]=useState(()=>{try{return JSON.parse(localStorage.getItem(key+"x")||"[]")}catch{return[]}});
+  const[hidden,setHidden]=useState(()=>{try{return JSON.parse(localStorage.getItem(key+"h")||"[]")}catch{return[]}});
   const[ovR,setOvR]=useState(0);
   useEffect(()=>{localStorage.setItem(key,JSON.stringify(ck))},[ck,key]);
   useEffect(()=>{localStorage.setItem(key+"x",JSON.stringify(cx))},[cx,key]);
+  useEffect(()=>{localStorage.setItem(key+"h",JSON.stringify(hidden))},[hidden,key]);
   const toggle=useCallback(id=>setCk(p=>({...p,[id]:!p[id]})),[]);
   const addCx=useCallback((cid,txt,qty,desc)=>setCx(p=>[...p,{id:`cx${Date.now()}`,cid,text:txt,qty:parseInt(qty)||1,desc,price:null,stock:0,priority:"medium"}]),[]);
   const removeCx=useCallback(id=>{setCx(p=>p.filter(c=>c.id!==id));setCk(p=>{const n={...p};delete n[id];return n})},[]);
+  // Masquer un article pré-rempli (non supprimable définitivement)
+  const hideItem=useCallback(id=>{setHidden(p=>p.includes(id)?p:[...p,id]);setCk(p=>{const n={...p};delete n[id];return n})},[]);
+  const removeItem=useCallback(id=>{if(String(id).startsWith("cx"))removeCx(id);else hideItem(id)},[removeCx,hideItem]);
   const res=useCallback(item=>{if(String(item.id).startsWith("cx"))return item;return mgOv(item)},[ovR]);// eslint-disable-line
   const editItem=useCallback((id,fields,editedBy="user")=>{const isC=String(id).startsWith("cx");if(isC){let cur=null;setCx(prev=>{cur=prev.find(a=>a.id===id)??null;return prev});return editArticle(id,fields,{appVersion:APP_V,editedBy,getArticle:()=>cur,saveArticle:up=>setCx(prev=>prev.map(a=>a.id===id?up:a))})}const base=cats.flatMap(c=>c.items).find(a=>a.id===id);return editArticle(id,fields,{appVersion:APP_V,editedBy,getArticle:()=>base?mgOv(base):null,saveArticle:up=>{wrOv(up);setOvR(r=>r+1)}})},[cats]);
-  const stats=useMemo(()=>{const all=cats.flatMap(c=>[...c.items.map(i=>res(i)),...cx.filter(x=>x.cid===c.id)]);const real=all.filter(i=>!i.isPlaceholder);const done=real.filter(i=>ck[i.id]).length;return{total:real.length,done,pct:real.length?Math.round((done/real.length)*100):0}},[cats,cx,ck,res]);
-  const grandTotal=useMemo(()=>cats.reduce((s,cat)=>{const items=[...cat.items.map(i=>res(i)),...cx.filter(x=>x.cid===cat.id)];return s+calcCatTotal(items,nbChildren)},0),[cats,cx,res,nbChildren]);
-  const grandToBuy=useMemo(()=>cats.reduce((s,cat)=>{const items=[...cat.items.map(i=>res(i)),...cx.filter(x=>x.cid===cat.id)];return s+calcCatToBuy(items,nbChildren)},0),[cats,cx,res,nbChildren]);
-  const catTotals=useMemo(()=>{const m={};cats.forEach(cat=>{const it=[...cat.items.map(i=>res(i)),...cx.filter(x=>x.cid===cat.id)];m[cat.id]=calcCatTotal(it,nbChildren)});return m},[cats,cx,res,nbChildren]);
-  const catToBuy=useMemo(()=>{const m={};cats.forEach(cat=>{const it=[...cat.items.map(i=>res(i)),...cx.filter(x=>x.cid===cat.id)];m[cat.id]=calcCatToBuy(it,nbChildren)});return m},[cats,cx,res,nbChildren]);
-  return{ck,toggle,cx,addCx,removeCx,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy};
+  const visibleItems=useCallback((catItems,catId)=>[...catItems.filter(i=>!hidden.includes(i.id)).map(i=>res(i)),...cx.filter(x=>x.cid===catId)],[hidden,cx,res]);
+  const stats=useMemo(()=>{const all=cats.flatMap(c=>visibleItems(c.items,c.id));const real=all.filter(i=>!i.isPlaceholder);const done=real.filter(i=>ck[i.id]).length;return{total:real.length,done,pct:real.length?Math.round((done/real.length)*100):0}},[cats,ck,visibleItems]);
+  const grandTotal=useMemo(()=>cats.reduce((s,cat)=>s+calcCatTotal(visibleItems(cat.items,cat.id),nbChildren),0),[cats,visibleItems,nbChildren]);
+  const grandToBuy=useMemo(()=>cats.reduce((s,cat)=>s+calcCatToBuy(visibleItems(cat.items,cat.id),nbChildren),0),[cats,visibleItems,nbChildren]);
+  const catTotals=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatTotal(visibleItems(cat.items,cat.id),nbChildren)});return m},[cats,visibleItems,nbChildren]);
+  const catToBuy=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatToBuy(visibleItems(cat.items,cat.id),nbChildren)});return m},[cats,visibleItems,nbChildren]);
+  return{ck,toggle,cx,addCx,removeCx,removeItem,visibleItems,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy};
 }
 
 /* ══════ ATOMS ══════ */
@@ -1470,7 +1477,15 @@ function EditModal({item,onSave,onClose}){
           <div className={`cb ${f.urgent?"on":""}`} onClick={()=>setF(p=>({...p,urgent:!p.urgent}))} style={{flexShrink:0}}><Tick/></div>
           <span style={{fontSize:13,fontWeight:500}}>Marquer comme URGENT</span>
         </div>
-        <div style={{display:"flex",gap:8}}><button className="btn bp" style={{flex:1}} onClick={submit}>✓ Enregistrer</button><button className="btn bs" onClick={onClose}>Annuler</button></div>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <button className="btn bp" style={{flex:1}} onClick={submit}>✓ Enregistrer</button>
+          <button className="btn bs" onClick={onClose}>Annuler</button>
+          <button className="btn bg" title="Vider quantité et prix"
+            style={{color:"var(--g400)",fontSize:11,padding:"6px 10px"}}
+            onClick={()=>{setErrors([]);setF(p=>({...p,qty:"",price:""}))}}>
+            ⌫ Vider les chiffres
+          </button>
+        </div>
       </div>
     </div>
   </div>);
@@ -1944,7 +1959,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
     </div>
     <div style={{padding:"12px 15px 0"}}>
       {CLINIC_CATS.map((cat,ci)=>{
-        const allItems=[...cat.items,...cl.cx.filter(x=>x.cid===cat.id)];
+        const allItems=cl.visibleItems(cat.items,cat.id);
         const done=allItems.filter(i=>cl.ck[i.id]).length,pct=allItems.length?Math.round((done/allItems.length)*100):0;
         const catTotal=cl.catTotals[cat.id]??0,catBuy=cl.catToBuy[cat.id]??0,isO=open===cat.id;
         return(<div key={cat.id} id={`cat-${cat.id}`} style={{marginBottom:9,borderRadius:"var(--r2)",overflow:"hidden",border:"1.5px solid var(--g200)",background:"var(--wh)",boxShadow:"var(--sh1)",animation:`fU .36s ${ci*.05}s both`}}>
@@ -1971,7 +1986,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
                 <span style={{fontSize:14,fontWeight:800,color:"#2B6650"}}>{fmtEur(catBuy)}</span>
               </div>
             </div>}
-            {allItems.map(item=>(<ItemCard key={item.id} item={cl.res(item)} checked={!!cl.ck[item.id]} onToggle={cl.toggle} showP nbChildren={nbChildren} onEdit={i=>setEI(cl.res(i))} onRemove={cl.cx.find(x=>x.id===item.id)?cl.removeCx:null}/>))}
+            {allItems.map(item=>(<ItemCard key={item.id} item={cl.res(item)} checked={!!cl.ck[item.id]} onToggle={cl.toggle} showP nbChildren={nbChildren} onEdit={i=>setEI(cl.res(i))} onRemove={cl.removeItem}/>))}
             <button className="btn bs" style={{marginTop:2,fontSize:12}} onClick={()=>setAdd({cid:cat.id,cl:cat.label})}>+ Ajouter un article</button>
           </div>)}
         </div>);
@@ -2063,7 +2078,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
                 <span style={{fontSize:14,fontWeight:800,color:"#2B6650"}}>{fmtEur(catBuy)}</span>
               </div>
             </div>}
-            {items.map(item=>(<ItemCard key={item.id} item={home.res(item)} checked={!!home.ck[item.id]} onToggle={home.toggle} showP={showP} nbChildren={nbChildren} onEdit={i=>setEI(home.res(i))} onRemove={home.cx.find(x=>x.id===item.id)?home.removeCx:null}/>))}
+            {items.map(item=>(<ItemCard key={item.id} item={home.res(item)} checked={!!home.ck[item.id]} onToggle={home.toggle} showP={showP} nbChildren={nbChildren} onEdit={i=>setEI(home.res(i))} onRemove={home.removeItem}/>))}
             <button className="btn bs" style={{marginTop:2,fontSize:12}} onClick={()=>setAdd({cid:cat.id,cl:cat.label})}>+ Ajouter un article</button>
           </div>)}
         </div>);
