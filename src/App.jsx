@@ -2097,88 +2097,212 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
 /* ══════ TRACKER ══════ */
 const FT=["Sein G","Sein D","Biberon","Mixte"],DT=["Pipi 🌊","Selle 💩","Mixte 💦"];
 function TrackerPage({family}){
+  const COLORS=["var(--aq)","var(--pe)","var(--sa)","var(--vi)","var(--am)","var(--bl)"];
   const BB=family.children.map((c,i)=>c.prenom||`Bébé ${i+1}`);
+  const bc=b=>COLORS[BB.indexOf(b)%COLORS.length];
+
   const[logs,setLogs]=useState(()=>{try{return JSON.parse(localStorage.getItem("tl6")||"[]")}catch{return[]}});
   const[modal,setM]=useState(null),[form,setF]=useState({});
+  const[view,setView]=useState("dash"); // dash | timeline
   const today=new Date().toISOString().split("T")[0];
   const todayStr=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
   const tl=logs.filter(l=>l.date===today);
   const save=nl=>{setLogs(nl);localStorage.setItem("tl6",JSON.stringify(nl))};
   const addLog=(type,baby,data)=>{save([{id:Date.now(),date:today,time:new Date().toTimeString().slice(0,5),type,baby,...data},...logs].slice(0,600));setM(null);setF({})};
-  const COLORS=["var(--aq)","var(--pe)","var(--sa)","var(--vi)","var(--am)","var(--bl)"];
-  const bc=b=>COLORS[BB.indexOf(b)%COLORS.length];
-  const te=t=>t==="feed"?"🍼":t==="diaper"?"🩲":"💤";
-  const tl2=t=>t==="feed"?"Repas":t==="diaper"?"Change":"Sommeil";
-  const stats=BB.map(baby=>({baby,feeds:tl.filter(l=>l.baby===baby&&l.type==="feed").length,diapers:tl.filter(l=>l.baby===baby&&l.type==="diaper").length,sleepMin:tl.filter(l=>l.baby===baby&&l.type==="sleep"&&l.duration).reduce((a,l)=>a+parseInt(l.duration||0),0)}));
-  return(<div style={{paddingBottom:96}}>
-    <div style={{background:"linear-gradient(135deg,#E6F4EE,#FFF0E9,#D8F2F3)",padding:"30px 18px 26px"}}>
-      <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--sa)",textTransform:"uppercase",marginBottom:5}}>Journal quotidien</p>
-      <h1 style={{fontFamily:"var(--fs)",fontSize:26,lineHeight:1.22,marginBottom:3}}>Suivi de<br/><em>{BB.join(" & ")}</em></h1>
-      <p style={{fontSize:12,color:"var(--g600)",textTransform:"capitalize"}}>{todayStr}</p>
-    </div>
-    <div style={{padding:"12px 15px 0",display:"grid",gridTemplateColumns:BB.length>2?"1fr 1fr 1fr":"1fr 1fr",gap:9}}>
-      {stats.map(s=>(<div key={s.baby} style={{background:"var(--wh)",borderRadius:"var(--r2)",padding:"12px 13px",border:`2px solid ${bc(s.baby)}20`,boxShadow:"var(--sh1)"}}>
-        <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:9}}><div style={{width:7,height:7,borderRadius:"50%",background:bc(s.baby)}}/>
-          <span style={{fontSize:12.5,fontWeight:700,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.baby}</span></div>
-        {[["🍼","Repas",s.feeds],["🩲","Changes",s.diapers],["💤","Sommeil",s.sleepMin?`${s.sleepMin}min`:"—"]].map(([e,l,v])=>(
-          <div key={l} style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:3}}><span style={{color:"var(--g600)"}}>{e} {l}</span><b>{v}</b></div>
-        ))}
-      </div>))}
-    </div>
-    <div style={{padding:"12px 15px 0"}}>
-      <p style={{fontSize:10,fontWeight:800,letterSpacing:1.3,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>Enregistrer rapidement</p>
-      <div style={{display:"grid",gridTemplateColumns:`repeat(${Math.min(BB.length*3,6)},1fr)`,gap:6}}>
-        {BB.flatMap(baby=>["feed","diaper","sleep"].map(type=>(
-          <button key={`${baby}-${type}`} className="btn bs" style={{flexDirection:"column",padding:"8px 3px",gap:3,fontSize:9.5,borderColor:`${bc(baby)}40`}} onClick={()=>{setM({type,baby});setF({})}}>
-            <span style={{fontSize:16}}>{te(type)}</span>
-            <span style={{color:bc(baby),fontWeight:800,fontSize:8.5,overflow:"hidden",textOverflow:"ellipsis",maxWidth:"100%"}}>{baby.split(" ")[0]}</span>
-            <span style={{color:"var(--g600)"}}>{tl2(type)}</span>
-          </button>
-        )))}
-      </div>
-    </div>
-    <div style={{padding:"12px 15px 0"}}>
-      <p style={{fontSize:10,fontWeight:800,letterSpacing:1.3,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>Aujourd'hui ({tl.length})</p>
-      {tl.length===0?(<div style={{textAlign:"center",padding:"28px 0",color:"var(--g400)"}}><div style={{fontSize:32,marginBottom:7}}>👶</div><p style={{fontSize:13}}>Aucune entrée</p></div>):(
-        <div style={{display:"flex",flexDirection:"column",gap:6}}>
-          {tl.map(log=>(<div key={log.id} style={{background:"var(--wh)",borderRadius:"var(--r1)",padding:"10px 12px",border:"1.5px solid var(--g200)",display:"flex",alignItems:"center",gap:10,animation:"fU .26s both"}}>
-            <span style={{fontSize:17}}>{te(log.type)}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
-                <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:99,background:`${bc(log.baby)}18`,color:bc(log.baby)}}>{log.baby}</span>
-                <span style={{fontSize:12.5,fontWeight:600}}>{tl2(log.type)}</span>
-                {log.subtype&&<span style={{fontSize:11,color:"var(--g400)"}}>{log.subtype}</span>}
-                {log.duration&&<span style={{fontSize:11,color:"var(--g400)"}}>{log.duration}min</span>}
+
+  const THEMES=[
+    {id:"feed",   emoji:"🍼", label:"Repas",   color:"var(--aq)", bg:"var(--aq-p)",
+     stat:(baby)=>{ const ls=tl.filter(l=>l.baby===baby&&l.type==="feed"); return{count:ls.length,last:ls[0]?.time,detail:ls[0]?.subtype}; }},
+    {id:"diaper", emoji:"🩲", label:"Changes",  color:"var(--pe)", bg:"var(--pe-p)",
+     stat:(baby)=>{ const ls=tl.filter(l=>l.baby===baby&&l.type==="diaper"); return{count:ls.length,last:ls[0]?.time,detail:ls[0]?.subtype}; }},
+    {id:"sleep",  emoji:"💤", label:"Sommeil",  color:"var(--vi)", bg:"var(--vi-p)",
+     stat:(baby)=>{ const ls=tl.filter(l=>l.baby===baby&&l.type==="sleep"&&l.duration); const min=ls.reduce((a,l)=>a+parseInt(l.duration||0),0); return{count:ls.length,last:ls[0]?.time,min,detail:min?`${min}min`:null}; }},
+  ];
+
+  // ── Vue TABLEAU DE BORD ──
+  const DashView=()=>(
+    <div style={{padding:"12px 15px 0",display:"flex",flexDirection:"column",gap:10}}>
+      {THEMES.map(theme=>{
+        const stats=BB.map(baby=>({baby,color:bc(baby),...theme.stat(baby)}));
+        const totalCount=stats.reduce((s,x)=>s+x.count,0);
+        return(
+          <div key={theme.id} style={{background:"var(--wh)",borderRadius:"var(--r2)",boxShadow:"var(--sh1)",border:"1.5px solid var(--g200)",overflow:"hidden"}}>
+            {/* En-tête thème */}
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"11px 14px 8px",borderBottom:"1px solid var(--g100)",background:theme.bg}}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span style={{fontSize:20}}>{theme.emoji}</span>
+                <span style={{fontSize:13,fontWeight:800,color:"var(--g800)"}}>{theme.label}</span>
+                {totalCount>0&&<span style={{fontSize:10,fontWeight:800,padding:"1px 7px",borderRadius:99,background:"rgba(255,255,255,.7)",color:theme.color}}>{totalCount} total</span>}
               </div>
-              {log.notes&&<p style={{fontSize:11,color:"var(--g400)",marginTop:2}}>{log.notes}</p>}
+              {/* Boutons ajout rapide par enfant */}
+              <div style={{display:"flex",gap:5}}>
+                {BB.map(baby=>(
+                  <button key={baby} onClick={()=>{setM({type:theme.id,baby});setF({})}}
+                    style={{padding:"4px 9px",borderRadius:99,border:`1.5px solid ${bc(baby)}`,background:"rgba(255,255,255,.85)",cursor:"pointer",fontFamily:"var(--ff)",fontSize:10,fontWeight:800,color:bc(baby),display:"flex",alignItems:"center",gap:3}}>
+                    + {baby.split(" ")[0]}
+                  </button>
+                ))}
+              </div>
             </div>
-            <span style={{fontSize:11,color:"var(--g400)"}}>{log.time}</span>
-            <button className="btn bg" style={{padding:"1px 4px",fontSize:14,color:"var(--g300)"}} onClick={()=>save(logs.filter(l=>l.id!==log.id))}>×</button>
-          </div>))}
+            {/* Grille enfants */}
+            <div style={{display:"grid",gridTemplateColumns:`repeat(${BB.length},1fr)`,gap:0}}>
+              {stats.map((s,i)=>(
+                <div key={s.baby} style={{padding:"12px 13px",borderRight:i<BB.length-1?"1px solid var(--g100)":"none"}}>
+                  {/* Nom enfant */}
+                  <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:8}}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:s.color,flexShrink:0}}/>
+                    <span style={{fontSize:11,fontWeight:800,color:"var(--g800)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{s.baby}</span>
+                  </div>
+                  {/* Compteur */}
+                  <div style={{textAlign:"center",marginBottom:6}}>
+                    <span style={{fontSize:28,fontWeight:800,color:s.count>0?s.color:"var(--g300)",lineHeight:1}}>{s.count}</span>
+                    <p style={{fontSize:9.5,color:"var(--g400)",marginTop:1}}>{theme.id==="sleep"&&s.min>0?`${s.min} min totales`:`fois aujourd'hui`}</p>
+                  </div>
+                  {/* Dernière entrée */}
+                  {s.last?(
+                    <div style={{background:"var(--g50)",borderRadius:"var(--r1)",padding:"5px 7px",fontSize:10}}>
+                      <p style={{color:"var(--g600)",marginBottom:1}}>Dernière : <b>{s.last}</b></p>
+                      {s.detail&&<p style={{color:theme.color,fontWeight:700}}>{s.detail}</p>}
+                    </div>
+                  ):(
+                    <div style={{textAlign:"center",padding:"4px 0"}}>
+                      <p style={{fontSize:10,color:"var(--g300)"}}>— aucune entrée —</p>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  // ── Vue TIMELINE ──
+  const TimelineView=()=>(
+    <div style={{padding:"12px 15px 0"}}>
+      <p style={{fontSize:10,fontWeight:800,letterSpacing:1.3,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>
+        Aujourd'hui — {tl.length} entrée{tl.length>1?"s":""}
+      </p>
+      {tl.length===0?(
+        <div style={{textAlign:"center",padding:"32px 0",color:"var(--g400)"}}>
+          <div style={{fontSize:36,marginBottom:8}}>👶</div>
+          <p style={{fontSize:13}}>Aucune entrée aujourd'hui</p>
+          <p style={{fontSize:11,marginTop:4}}>Utilisez le tableau de bord pour ajouter</p>
+        </div>
+      ):(
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {tl.map(log=>{
+            const theme=THEMES.find(t=>t.id===log.type);
+            return(
+              <div key={log.id} style={{background:"var(--wh)",borderRadius:"var(--r1)",padding:"10px 12px",border:"1.5px solid var(--g200)",display:"flex",alignItems:"center",gap:10,animation:"fU .26s both"}}>
+                <div style={{width:32,height:32,borderRadius:"var(--r1)",background:theme?.bg||"var(--g100)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>{theme?.emoji}</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                    <span style={{fontSize:10,fontWeight:800,padding:"1px 6px",borderRadius:99,background:`${bc(log.baby)}18`,color:bc(log.baby)}}>{log.baby}</span>
+                    <span style={{fontSize:12.5,fontWeight:600}}>{theme?.label}</span>
+                    {log.subtype&&<span style={{fontSize:11,color:"var(--g400)"}}>{log.subtype}</span>}
+                    {log.duration&&<span style={{fontSize:11,color:"var(--g400)",fontWeight:700}}>{log.duration} min</span>}
+                  </div>
+                  {log.notes&&<p style={{fontSize:11,color:"var(--g400)",marginTop:2}}>{log.notes}</p>}
+                </div>
+                <span style={{fontSize:11,color:"var(--g400)",flexShrink:0}}>{log.time}</span>
+                <button className="btn bg" style={{padding:"1px 4px",fontSize:14,color:"var(--g300)",flexShrink:0}} onClick={()=>save(logs.filter(l=>l.id!==log.id))}>×</button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
+  );
+
+  return(<div style={{paddingBottom:96}}>
+    {/* Header */}
+    <div style={{background:"linear-gradient(135deg,#E6F4EE,#FFF0E9,#D8F2F3)",padding:"24px 18px 20px"}}>
+      <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--sa)",textTransform:"uppercase",marginBottom:4}}>Journal quotidien</p>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <h1 style={{fontFamily:"var(--fs)",fontSize:24,lineHeight:1.22,marginBottom:3}}>Suivi de<br/><em>{BB.join(" & ")}</em></h1>
+          <p style={{fontSize:11,color:"var(--g600)",textTransform:"capitalize"}}>{todayStr}</p>
+        </div>
+        {/* Résumé global */}
+        <div style={{display:"flex",gap:6,flexShrink:0}}>
+          {THEMES.map(t=>{
+            const total=BB.reduce((s,b)=>s+t.stat(b).count,0);
+            return(
+              <div key={t.id} style={{textAlign:"center",padding:"6px 9px",background:"rgba(255,255,255,.7)",borderRadius:"var(--r1)",minWidth:38}}>
+                <div style={{fontSize:16}}>{t.emoji}</div>
+                <div style={{fontSize:13,fontWeight:800,color:total>0?t.color:"var(--g300)"}}>{total}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+
+    {/* Onglets Tableau de bord / Timeline */}
+    <div style={{display:"flex",gap:0,margin:"10px 15px 0",background:"var(--g100)",borderRadius:"var(--r1)",padding:3}}>
+      {[["dash","📊 Tableau de bord"],["timeline","📋 Chronologie"]].map(([v,l])=>(
+        <button key={v} onClick={()=>setView(v)}
+          style={{flex:1,padding:"7px 4px",borderRadius:7,border:"none",cursor:"pointer",fontFamily:"var(--ff)",fontSize:11.5,fontWeight:700,transition:".15s",
+            background:view===v?"var(--wh)":"transparent",
+            color:view===v?"var(--g800)":"var(--g400)",
+            boxShadow:view===v?"var(--sh1)":"none"}}>
+          {l}
+        </button>
+      ))}
+    </div>
+
+    {view==="dash" ? <DashView/> : <TimelineView/>}
+
+    {/* Modal saisie */}
     {modal&&(<div className="mbd" style={{animation:"fI .26s ease forwards"}} onClick={()=>setM(null)}>
       <div className="msh" style={{animation:"sU .36s cubic-bezier(.22,1,.36,1) forwards"}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-          <h3 style={{fontFamily:"var(--fs)",fontSize:19}}>{te(modal.type)} {tl2(modal.type)} — {modal.baby}</h3>
+          <div>
+            <h3 style={{fontFamily:"var(--fs)",fontSize:19}}>{THEMES.find(t=>t.id===modal.type)?.emoji} {THEMES.find(t=>t.id===modal.type)?.label}</h3>
+            <div style={{display:"inline-flex",alignItems:"center",gap:5,marginTop:4,padding:"2px 9px",borderRadius:99,background:`${bc(modal.baby)}18`}}>
+              <div style={{width:7,height:7,borderRadius:"50%",background:bc(modal.baby)}}/>
+              <span style={{fontSize:11,fontWeight:800,color:bc(modal.baby)}}>{modal.baby}</span>
+            </div>
+          </div>
           <button className="btn bg" onClick={()=>setM(null)} style={{fontSize:21,padding:"0 4px"}}>×</button>
         </div>
         <div style={{display:"flex",flexDirection:"column",gap:10}}>
-          {modal.type==="feed"&&<div><label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Type de repas</label>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{FT.map(t=><button key={t} onClick={()=>setF(f=>({...f,subtype:t}))} style={{padding:"6px 12px",borderRadius:99,border:"1.5px solid",fontSize:12.5,cursor:"pointer",fontWeight:600,borderColor:form.subtype===t?"var(--aq)":"var(--g200)",background:form.subtype===t?"var(--aq-p)":"var(--wh)",color:form.subtype===t?"var(--aq)":"var(--g600)"}}>{t}</button>)}</div></div>}
-          {modal.type==="diaper"&&<div><label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Type de change</label>
-            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{DT.map(t=><button key={t} onClick={()=>setF(f=>({...f,subtype:t}))} style={{padding:"6px 12px",borderRadius:99,border:"1.5px solid",fontSize:12.5,cursor:"pointer",fontWeight:600,borderColor:form.subtype===t?"var(--pe)":"var(--g200)",background:form.subtype===t?"var(--pe-p)":"var(--wh)",color:form.subtype===t?"var(--pe)":"var(--g600)"}}>{t}</button>)}</div></div>}
-          {modal.type==="sleep"&&<div><label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Durée (minutes)</label>
-            <input className="inp" type="number" min={1} placeholder="Ex : 45" value={form.duration||""} onChange={e=>setF(f=>({...f,duration:e.target.value}))} style={{width:130}}/></div>}
-          <div><label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Note (optionnel)</label>
-            <input className="inp" placeholder="Observations…" value={form.notes||""} onChange={e=>setF(f=>({...f,notes:e.target.value}))}/></div>
-          <button className="btn bp" onClick={()=>addLog(modal.type,modal.baby,form)}>Enregistrer</button>
+          {modal.type==="feed"&&<div>
+            <label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Type de repas</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{FT.map(t=><button key={t} onClick={()=>setF(f=>({...f,subtype:t}))} style={{padding:"6px 12px",borderRadius:99,border:"1.5px solid",fontSize:12.5,cursor:"pointer",fontWeight:600,borderColor:form.subtype===t?"var(--aq)":"var(--g200)",background:form.subtype===t?"var(--aq-p)":"var(--wh)",color:form.subtype===t?"var(--aq)":"var(--g600)"}}>{t}</button>)}</div>
+          </div>}
+          {modal.type==="diaper"&&<div>
+            <label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Type de change</label>
+            <div style={{display:"flex",flexWrap:"wrap",gap:6}}>{DT.map(t=><button key={t} onClick={()=>setF(f=>({...f,subtype:t}))} style={{padding:"6px 12px",borderRadius:99,border:"1.5px solid",fontSize:12.5,cursor:"pointer",fontWeight:600,borderColor:form.subtype===t?"var(--pe)":"var(--g200)",background:form.subtype===t?"var(--pe-p)":"var(--wh)",color:form.subtype===t?"var(--pe)":"var(--g600)"}}>{t}</button>)}</div>
+          </div>}
+          {modal.type==="sleep"&&<div>
+            <label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Durée (minutes)</label>
+            <input className="inp" type="number" min={1} placeholder="Ex : 45" value={form.duration||""} onChange={e=>setF(f=>({...f,duration:e.target.value}))} style={{width:130}} autoFocus/>
+          </div>}
+          <div>
+            <label style={{fontSize:11.5,fontWeight:700,color:"var(--g600)",display:"block",marginBottom:6}}>Note (optionnel)</label>
+            <input className="inp" placeholder="Observations…" value={form.notes||""} onChange={e=>setF(f=>({...f,notes:e.target.value}))}/>
+          </div>
+          <button className="btn bp" onClick={()=>addLog(modal.type,modal.baby,form)}>✓ Enregistrer</button>
+          {/* Bouton bascule enfant */}
+          {BB.length>1&&(
+            <div style={{display:"flex",gap:6,justifyContent:"center"}}>
+              {BB.filter(b=>b!==modal.baby).map(b=>(
+                <button key={b} onClick={()=>setM(m=>({...m,baby:b}))}
+                  style={{padding:"5px 12px",borderRadius:99,border:`1.5px solid ${bc(b)}`,background:"var(--wh)",cursor:"pointer",fontFamily:"var(--ff)",fontSize:11,fontWeight:700,color:bc(b)}}>
+                  Passer à {b}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>)}
   </div>);
 }
+
 
 /* ══════ DASHBOARD ══════ */
 function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOpen}){
