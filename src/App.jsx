@@ -1410,14 +1410,14 @@ function ItemCard({item,checked,onToggle,onRemove,onEdit,showP=false,nbChildren=
       </div>
       <div style={{display:"flex",gap:3,flexShrink:0}}>
         {onEdit&&!item.isPlaceholder&&<button className="btn bg" style={{padding:"2px 6px",fontSize:13}} onClick={()=>onEdit(item)}>✏</button>}
-        {onRemove&&<button className="btn bg" style={{padding:"1px 5px",fontSize:14,color:"var(--g300)"}} onClick={()=>onRemove(item.id)}>×</button>}
       </div>
     </div>
   </div>);
 }
 
-function EditModal({item,onSave,onClose}){
+function EditModal({item,onSave,onClose,onRemove}){
   const[f,setF]=useState({text:item.text??"",qty:item.qty??"",price:item.price??"",stock:item.stock??0,priority:item.priority??"medium",urgent:item.urgent??false,store:item.store??"",desc:item.desc??""});
+  const[confirmDel,setConfirmDel]=useState(false);
   const[errors,setErrors]=useState([]);
   const previewVal=f.qty!==""&&f.price!==""?parseInt(f.qty)*parseFloat(f.price):null;
   const previewBuy=previewVal!=null?Math.max(0,parseInt(f.qty)-(parseInt(f.stock)||0))*parseFloat(f.price):null;
@@ -1490,6 +1490,41 @@ function EditModal({item,onSave,onClose}){
             ⌫ Vider les chiffres
           </button>
         </div>
+        {/* ── Zone suppression avec confirmation ── */}
+        {onRemove&&!item.isPlaceholder&&(
+          <div style={{marginTop:8,paddingTop:12,borderTop:"1px solid var(--g200)"}}>
+            {!confirmDel?(
+              <button
+                onClick={()=>setConfirmDel(true)}
+                style={{width:"100%",padding:"9px 14px",background:"transparent",border:"1.5px solid var(--g200)",borderRadius:"var(--r1)",cursor:"pointer",fontFamily:"var(--ff)",fontSize:12,fontWeight:600,color:"var(--g400)",display:"flex",alignItems:"center",justifyContent:"center",gap:6,transition:"all .16s"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--rd)";e.currentTarget.style.color="var(--rd)";e.currentTarget.style.background="var(--rd-p)"}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--g200)";e.currentTarget.style.color="var(--g400)";e.currentTarget.style.background="transparent"}}
+              >
+                🗑 Supprimer cet article
+              </button>
+            ):(
+              <div style={{padding:"13px 14px",background:"var(--rd-p)",borderRadius:"var(--r1)",border:"1.5px solid rgba(212,82,82,.35)"}}>
+                <p style={{fontSize:12.5,fontWeight:700,color:"var(--rd)",marginBottom:4}}>⚠ Confirmer la suppression</p>
+                <p style={{fontSize:11,color:"#8B2020",marginBottom:12,lineHeight:1.55}}>
+                  Voulez-vous vraiment supprimer <b>« {item.text} »</b> ?<br/>
+                  {String(item.id).startsWith("cx")?"Cette action est définitive.":"L'article sera masqué de votre liste."}
+                </p>
+                <div style={{display:"flex",gap:8}}>
+                  <button
+                    onClick={()=>{onRemove(item.id);onClose();}}
+                    style={{flex:1,padding:"10px",background:"var(--rd)",border:"none",borderRadius:"var(--r1)",cursor:"pointer",fontFamily:"var(--ff)",fontSize:13,fontWeight:800,color:"var(--wh)"}}>
+                    ✓ Oui, supprimer
+                  </button>
+                  <button
+                    onClick={()=>setConfirmDel(false)}
+                    style={{flex:1,padding:"10px",background:"var(--wh)",border:"1.5px solid var(--g200)",borderRadius:"var(--r1)",cursor:"pointer",fontFamily:"var(--ff)",fontSize:13,fontWeight:600,color:"var(--g800)"}}>
+                    ✗ Annuler
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   </div>);
@@ -1997,7 +2032,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
       })}
     </div>
     {add&&<AddModal cid={add.cid} clabel={add.cl} onAdd={cl.addCx} onClose={()=>setAdd(null)}/>}
-    {editItem&&<EditModal item={editItem} onSave={handleSave} onClose={()=>setEI(null)}/>}
+    {editItem&&<EditModal item={editItem} onSave={handleSave} onClose={()=>setEI(null)} onRemove={cl.removeItem}/>}
     <Toasts toasts={toasts}/>
   </div>);
 }
@@ -2089,7 +2124,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
       })}
     </div>
     {add&&<AddModal cid={add.cid} clabel={add.cl} onAdd={home.addCx} onClose={()=>setAdd(null)}/>}
-    {editItem&&<EditModal item={editItem} onSave={handleSave} onClose={()=>setEI(null)}/>}
+    {editItem&&<EditModal item={editItem} onSave={handleSave} onClose={()=>setEI(null)} onRemove={home.removeItem}/>}
     <Toasts toasts={toasts}/>
   </div>);
 }
