@@ -3,20 +3,48 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description"  content="Préparez sereinement l'arrivée de votre bébé — listes, budget, aides CAF" />
-    <meta name="theme-color"  content="#5BBEC2" />
-    <meta name="mobile-web-app-capable"       content="yes" />
-    <meta name="apple-mobile-web-app-capable"  content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title"    content="Baby Essentials" />
-    <meta property="og:title"       content="Baby Essentials" />
-    <meta property="og:description" content="Préparez sereinement l'arrivée de votre bébé" />
-    <meta property="og:type"        content="website" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- SEO & description -->
     <title>Baby Essentials</title>
+    <meta name="description" content="Préparez sereinement l'arrivée de votre bébé — listes, budget, aides CAF et suivi quotidien." />
+
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Thème couleur (barre navigateur Android/Chrome) -->
+    <meta name="theme-color" content="#5BBEC2" />
+
+    <!-- Android / Chrome — activer le mode standalone -->
+    <meta name="mobile-web-app-capable" content="yes" />
+
+    <!-- iOS / Safari — activer le mode plein écran -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="BabyEssentials" />
+
+    <!-- Icônes -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
+
+    <!-- Open Graph (partage) -->
+    <meta property="og:title" content="Baby Essentials" />
+    <meta property="og:description" content="Application de préparation maternité — listes, budget, journal." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://baby-essentials-five.vercel.app" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Enregistrement du Service Worker (PWA offline) -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(() => console.log('SW enregistré'))
+            .catch(e => console.log('SW erreur', e));
+        });
+      }
+    </script>
   </body>
 </html>
