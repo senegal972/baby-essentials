@@ -107,6 +107,7 @@ const effQty = (item, nb=1) => {
 };
 function calcCatTotal(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); if(q===0)return s; return s+i.price*q; },0)}
 function calcCatToBuy(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); const st=Math.min(typeof i.stock==="number"?i.stock:0,q); return s+i.price*(q-st); },0)}
+function calcCatUnchecked(items,ck,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null||ck[i.id])return s; const q=effQty(i,nb); if(q===0)return s; return s+i.price*q; },0)}
 
 /* ══════════════════════════════════════════════════════════════
    AUTH & CLOUD SYNC
@@ -1328,7 +1329,9 @@ function useCL(key,cats,nbChildren=1){
   const grandToBuy=useMemo(()=>cats.reduce((s,cat)=>s+calcCatToBuy(visibleItems(cat.items,cat.id),nbChildren),0),[cats,visibleItems,nbChildren]);
   const catTotals=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatTotal(visibleItems(cat.items,cat.id),nbChildren)});return m},[cats,visibleItems,nbChildren]);
   const catToBuy=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatToBuy(visibleItems(cat.items,cat.id),nbChildren)});return m},[cats,visibleItems,nbChildren]);
-  return{ck,toggle,cx,addCx,removeCx,removeItem,visibleItems,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy};
+  const catUnchecked=useMemo(()=>{const m={};cats.forEach(cat=>{const it=visibleItems(cat.items,cat.id);m[cat.id]=calcCatUnchecked(it,ck,nbChildren)});return m},[cats,visibleItems,ck,nbChildren]);
+  const grandUnchecked=useMemo(()=>cats.reduce((s,cat)=>s+calcCatUnchecked(visibleItems(cat.items,cat.id),ck,nbChildren),0),[cats,visibleItems,ck,nbChildren]);
+  return{ck,toggle,cx,addCx,removeCx,removeItem,visibleItems,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy,catUnchecked,grandUnchecked};
 }
 
 /* ══════ ATOMS ══════ */
@@ -1988,6 +1991,8 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
           {cl.grandToBuy<cl.grandTotal&&<p style={{fontSize:9,color:"var(--gr)",fontWeight:700}}>📦 {fmtEur(cl.grandTotal-cl.grandToBuy)} stock</p>}
           <p style={{fontSize:9,color:"var(--aq)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>À acheter</p>
           <p style={{fontSize:15,fontWeight:800,color:"var(--aq)"}}>{fmtEur(cl.grandToBuy)}</p>
+          {cl.grandUnchecked>0&&<><p style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>⬜ Non cochés</p>
+          <p style={{fontSize:13,fontWeight:800,color:"var(--am)"}}>{fmtEur(cl.grandUnchecked)}</p></>}
         </div>}
       </div>
       <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)" onDark/>
@@ -2009,6 +2014,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
                 <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontWeight:600,fontSize:13}}>{cat.label}</span>
                   {catBuy>0&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:99,background:"var(--sa-p)",color:"#2B6650",fontWeight:800}}>{fmtEur(catBuy)}</span>}
+                  {(cl.catUnchecked[cat.id]??0)>0&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:99,background:"var(--am-p)",color:"var(--am)",fontWeight:800}}>⬜ {fmtEur(cl.catUnchecked[cat.id])} restant</span>}
                 </div>
                 <span style={{fontSize:11,color:"var(--g400)",fontWeight:700}}>{done}/{allItems.length}</span>
               </div>
@@ -2025,6 +2031,12 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
                 <span style={{fontSize:14,fontWeight:800,color:"#2B6650"}}>{fmtEur(catBuy)}</span>
               </div>
             </div>}
+            {(cl.catUnchecked[cat.id]??0)>0&&(
+              <div style={{padding:"6px 11px",background:"var(--am-p)",borderRadius:"var(--r1)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Articles non cochés</span>
+                <span style={{fontSize:14,fontWeight:800,color:"var(--am)"}}>{fmtEur(cl.catUnchecked[cat.id])}</span>
+              </div>
+            )}
             {allItems.map(item=>(<ItemCard key={item.id} item={cl.res(item)} checked={!!cl.ck[item.id]} onToggle={cl.toggle} showP nbChildren={nbChildren} onEdit={i=>setEI(cl.res(i))} onRemove={cl.removeItem}/>))}
             <button className="btn bs" style={{marginTop:2,fontSize:12}} onClick={()=>setAdd({cid:cat.id,cl:cat.label})}>+ Ajouter un article</button>
           </div>)}
@@ -2064,6 +2076,8 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
           {stockSaving>0&&<p style={{fontSize:9,color:"var(--gr)",fontWeight:700}}>📦 {fmtEur(stockSaving)} stock</p>}
           <p style={{fontSize:9,color:"var(--pe)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>À acheter</p>
           <p style={{fontSize:15,fontWeight:800,color:"var(--pe)"}}>{fmtEur(home.grandToBuy)}</p>
+          {home.grandUnchecked>0&&<><p style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>⬜ Non cochés</p>
+          <p style={{fontSize:13,fontWeight:800,color:"var(--am)"}}>{fmtEur(home.grandUnchecked)}</p></>}
         </div>}
       </div>
       <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)" onDark/>
@@ -2099,6 +2113,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
                 <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",minWidth:0}}>
                   <span style={{fontWeight:600,fontSize:13,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cat.label}</span>
                   {catBuy>0&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,fontWeight:800,background:"var(--sa-p)",color:"#2B6650"}}>{fmtEur(catBuy)}</span>}
+                  {(home.catUnchecked[cat.id]??0)>0&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,fontWeight:800,background:"var(--am-p)",color:"var(--am)"}}>⬜ {fmtEur(home.catUnchecked[cat.id])}</span>}
                   {catBuy<catTotal&&catTotal>0&&<span className="tag t-stk">📦</span>}
                   {sharePct>0&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,fontWeight:800,background:sharePct>30?"var(--rd-p)":sharePct>20?"var(--am-p)":"var(--g100)",color:sharePct>30?"var(--rd)":sharePct>20?"var(--am)":"var(--g600)"}}>{sharePct}%</span>}
                   {budgetPct!=null&&<span style={{fontSize:10,padding:"1px 7px",borderRadius:99,fontWeight:800,background:"var(--aq-p)",color:"var(--aq)"}}>{budgetPct}% budget</span>}
@@ -2117,6 +2132,12 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
                 <span style={{fontSize:14,fontWeight:800,color:"#2B6650"}}>{fmtEur(catBuy)}</span>
               </div>
             </div>}
+            {(home.catUnchecked[cat.id]??0)>0&&(
+              <div style={{padding:"6px 11px",background:"var(--am-p)",borderRadius:"var(--r1)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
+                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Articles non cochés</span>
+                <span style={{fontSize:14,fontWeight:800,color:"var(--am)"}}>{fmtEur(home.catUnchecked[cat.id])}</span>
+              </div>
+            )}
             {items.map(item=>(<ItemCard key={item.id} item={home.res(item)} checked={!!home.ck[item.id]} onToggle={home.toggle} showP={showP} nbChildren={nbChildren} onEdit={i=>setEI(home.res(i))} onRemove={home.removeItem}/>))}
             <button className="btn bs" style={{marginTop:2,fontSize:12}} onClick={()=>setAdd({cid:cat.id,cl:cat.label})}>+ Ajouter un article</button>
           </div>)}
