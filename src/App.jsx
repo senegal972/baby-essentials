@@ -2421,14 +2421,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
       <DeclaredBudgetField db={db} label="Budget que vous êtes prêts à allouer" onDark/>
     </div>
     <div style={{padding:"12px 15px 0"}}><EcartCard declaredBudget={db.val} totalToBuy={totalToBuy} totalValue={totalValue} totalCAFAids={cafAids.totalAids}/></div>
-    <div style={{margin:"10px 15px 0"}}>
-      <button onClick={()=>setTab("aides")} style={{width:"100%",padding:"11px 14px",background:"var(--gr-p)",border:"1.5px solid rgba(43,138,74,.3)",borderRadius:"var(--r2)",cursor:"pointer",display:"flex",alignItems:"center",gap:10,textAlign:"left",transition:"all .16s"}}>
-        <span style={{fontSize:20}}>💰</span>
-        <div style={{flex:1}}><p style={{fontSize:12,fontWeight:700,color:"var(--gr)"}}>Aides CAF & Prestations sociales</p>
-          <p style={{fontSize:10.5,color:"var(--g600)",marginTop:1}}>{cafAids.totalAids>0?`${fmtEur(cafAids.totalAids)} d'aides estimées → budget effectif : ${fmtEur((db.val||0)+cafAids.totalAids)}`:"Saisissez vos aides pour voir votre budget effectif →"}</p></div>
-        <span style={{fontSize:14,color:"var(--gr)"}}>→</span>
-      </button>
-    </div>
+
     <div style={{padding:"12px 15px 0"}}>
       <p style={{fontSize:10,fontWeight:800,letterSpacing:1.5,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>Avancement</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
@@ -2469,25 +2462,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
         ))}
       </div>
     </div>
-    {urgents.length>0&&(<div style={{padding:"12px 15px 0"}}>
-      <p style={{fontSize:10,fontWeight:800,letterSpacing:1.3,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>🚨 Urgent — Cliquez pour accéder</p>
-      <div style={{display:"flex",flexDirection:"column",gap:6}}>
-        {urgents.map(item=>(
-          <button key={item.id} className="urgent-item" onClick={()=>navigateTo(item.tabTarget,item.catId)}>
-            <div style={{width:6,height:6,borderRadius:"50%",background:"var(--rd)",flexShrink:0,animation:"pls 1.5s infinite"}}/>
-            <span style={{fontSize:17,flexShrink:0}}>{item.catEmoji}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <p style={{fontSize:12.5,fontWeight:600}}>{item.text}</p>
-              <p style={{fontSize:10.5,color:"var(--g600)",marginTop:1}}>{item.tabTarget==="home"?"🏠 Maison":"🧳 Valise"}{item.store&&` · 🏪 ${item.store}`}</p>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3,flexShrink:0}}>
-              {item.price!=null&&effQty(item,nbChildren)>0&&<span style={{fontSize:11,fontWeight:800,color:"var(--g600)"}}>{fmtEur(item.price*effQty(item,nbChildren))}</span>}
-              <span style={{fontSize:10,color:"var(--aq)",fontWeight:700}}>Voir →</span>
-            </div>
-          </button>
-        ))}
-      </div>
-    </div>)}
+
     {/* Quick access — 6 items in 3×2 */}
     <div style={{padding:"12px 15px 0"}}>
       <p style={{fontSize:10,fontWeight:800,letterSpacing:1.3,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>Accès rapide</p>
