@@ -1111,7 +1111,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
   <h2>💶 Résumé Budgétaire</h2>
   <div class="budget-grid">
     ${db.val?`<div class="bcard"><div class="bcard-label">Déclaré</div><div class="bcard-val neutral">${fmtEur(db.val)}</div></div>`:""}
-    <div class="bcard"><div class="bcard-label">À acheter</div><div class="bcard-val ${isOver?"over":"ok"}">${fmtEur(totalToBuy)}</div></div>
+    <div class="bcard"><div class="bcard-label">Acheter</div><div class="bcard-val ${isOver?"over":"ok"}">${fmtEur(totalToBuy)}</div></div>
     ${delta!==null?`<div class="bcard"><div class="bcard-label">Écart</div><div class="bcard-val ${isOver?"over":"ok"}">${delta>0?"+":""}${fmtEur(delta)}</div></div>`:""}
     ${totalValue>totalToBuy?`<div class="bcard"><div class="bcard-label">Éco. stock</div><div class="bcard-val" style="color:#5A90C8">${fmtEur(totalValue-totalToBuy)}</div></div>`:""}
     ${cafAids.totalAids>0?`<div class="bcard"><div class="bcard-label">Aides CAF</div><div class="bcard-val ok">+${fmtEur(cafAids.totalAids)}</div></div>`:""}
@@ -1137,7 +1137,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
   <!-- MAISON -->
   <h2>🏠 Essentiels Maison — ${home.stats.done}/${home.stats.total} articles (${home.stats.pct}%)</h2>
   <table>
-    <thead><tr><th class="tc">✓</th><th>Article</th><th class="tc">Priorité</th><th class="tc num">Qté</th><th class="tc num">À acheter</th></tr></thead>
+    <thead><tr><th class="tc">✓</th><th>Article</th><th class="tc">Priorité</th><th class="tc num">Qté</th><th class="tc num">Acheter</th></tr></thead>
     <tbody>${homeHTML}</tbody>
   </table>
   ${home.grandToBuy>0?`<div class="section-total">Total Maison à acheter : ${fmtEur(home.grandToBuy)}</div>`:""}
@@ -1367,7 +1367,7 @@ function EcartCard({declaredBudget,totalToBuy,totalValue,totalCAFAids=0}){
       <div style={{height:"100%",width:`${Math.min(100,pctUsed)}%`,background:isOver?"var(--am)":"var(--gr)",borderRadius:99,transition:"width .6s"}}/>
     </div>
     <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:5}}>
-      {[{l:"Déclaré",v:fmtEur(declaredBudget),c:"inherit"},{l:"À acheter",v:fmtEur(totalToBuy),c:isOver?"var(--am)":"var(--gr)"},{l:"Restant",v:fmtEur(-delta),c:delta>0?"var(--rd)":"var(--gr)"},{l:"Éco stock",v:saving>0?fmtEur(saving):"—",c:"var(--bl)"}].map(p=>(
+      {[{l:"Déclaré",v:fmtEur(declaredBudget),c:"inherit"},{l:"Acheter",v:fmtEur(totalToBuy),c:isOver?"var(--am)":"var(--gr)"},{l:"Restant",v:fmtEur(-delta),c:delta>0?"var(--rd)":"var(--gr)"},{l:"Éco stock",v:saving>0?fmtEur(saving):"—",c:"var(--bl)"}].map(p=>(
         <div key={p.l} style={{textAlign:"center",padding:"6px 2px",background:"rgba(255,255,255,.5)",borderRadius:"var(--r1)"}}>
           <p style={{fontSize:8.5,fontWeight:800,textTransform:"uppercase",letterSpacing:.4,opacity:.65,marginBottom:2}}>{p.l}</p>
           <p style={{fontSize:11,fontWeight:800,color:p.c}}>{p.v}</p>
@@ -1464,7 +1464,7 @@ function EditModal({item,onSave,onClose,onRemove}){
         </div>
         {previewVal!=null&&!isNaN(previewVal)&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
           <div style={{padding:"8px 12px",background:"var(--g100)",borderRadius:"var(--r1)"}}><p style={{fontSize:9.5,color:"var(--g400)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Valeur totale</p><p style={{fontSize:14,fontWeight:800,color:"var(--g600)"}}>{fmtEur(previewVal)}</p></div>
-          <div style={{padding:"8px 12px",background:"var(--gr-p)",borderRadius:"var(--r1)"}}><p style={{fontSize:9.5,color:"var(--gr)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>À acheter</p><p style={{fontSize:14,fontWeight:800,color:"var(--gr)"}}>{fmtEur(previewBuy??0)}</p></div>
+          <div style={{padding:"8px 12px",background:"var(--gr-p)",borderRadius:"var(--r1)"}}><p style={{fontSize:9.5,color:"var(--gr)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Acheter</p><p style={{fontSize:14,fontWeight:800,color:"var(--gr)"}}>{fmtEur(previewBuy??0)}</p></div>
         </div>)}
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
@@ -1978,24 +1978,33 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
   const childrenLabel=children.map(c=>c.prenom||"Bébé").join(" & ")||"Bébé(s)";
   return(<div style={{paddingBottom:96}}>
     <div style={{background:"linear-gradient(135deg,#D8F2F3,#FFF0E9)",padding:"28px 18px 22px",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-28,right:-18,width:120,height:120,borderRadius:"50%",background:"rgba(91,190,194,.13)"}}/>
+      <div style={{position:"absolute",top:-20,right:-14,width:60,height:60,borderRadius:"50%",background:"rgba(91,190,194,.13)"}}/>
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--aq)",textTransform:"uppercase",marginBottom:5}}>CHU Toulouse</p>
       <h1 style={{fontFamily:"var(--fs)",fontSize:26,lineHeight:1.22,marginBottom:13}}>Valise de<br/><em>Maternité</em></h1>
       <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14}}>
         <div style={{position:"relative"}}><Ring pct={cl.stats.pct} size={52} color="#5BBEC2"/>
           <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--aq)"}}>{cl.stats.pct}%</span></div>
         <div><p style={{fontSize:17,fontWeight:800}}>{cl.stats.done}/{cl.stats.total}</p><p style={{fontSize:11.5,color:"var(--g600)"}}>pour {childrenLabel}</p></div>
-        {cl.grandTotal>0&&<div style={{marginLeft:"auto",textAlign:"right"}}>
-          <p style={{fontSize:9,color:"var(--g600)",fontWeight:700,textTransform:"uppercase"}}>Valeur totale</p>
-          <p style={{fontSize:12,fontWeight:700,color:"var(--g600)",textDecoration:cl.grandToBuy<cl.grandTotal?"line-through":"none"}}>{fmtEur(cl.grandTotal)}</p>
-          {cl.grandToBuy<cl.grandTotal&&<p style={{fontSize:9,color:"var(--gr)",fontWeight:700}}>📦 {fmtEur(cl.grandTotal-cl.grandToBuy)} stock</p>}
-          <p style={{fontSize:9,color:"var(--aq)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>À acheter</p>
-          <p style={{fontSize:15,fontWeight:800,color:"var(--aq)"}}>{fmtEur(cl.grandToBuy)}</p>
-          {cl.grandUnchecked>0&&<><p style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>⬜ Non cochés</p>
-          <p style={{fontSize:13,fontWeight:800,color:"var(--am)"}}>{fmtEur(cl.grandUnchecked)}</p></>}
+        {cl.grandTotal>0&&<div style={{marginLeft:"auto",textAlign:"right",display:"flex",flexDirection:"column",gap:3}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--g600)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Valeur totale</span>
+            <span style={{fontSize:12,fontWeight:700,color:"var(--g600)"}}>{fmtEur(cl.grandTotal)}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--aq)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Acheter</span>
+            <span style={{fontSize:15,fontWeight:800,color:"var(--aq)"}}>{fmtEur(cl.grandToBuy)}</span>
+          </div>
+          {cl.grandToBuy<cl.grandTotal&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--gr)",fontWeight:700,whiteSpace:"nowrap"}}>📦 En stock</span>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--gr)"}}>{fmtEur(cl.grandTotal-cl.grandToBuy)}</span>
+          </div>}
+          {cl.grandUnchecked>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>⬜ Non acheté</span>
+            <span style={{fontSize:11,fontWeight:800,color:"var(--am)"}}>{fmtEur(cl.grandUnchecked)}</span>
+          </div>}
         </div>}
       </div>
-      <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)" onDark/>
+      <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)"/>
       {cl.stats.pct===100&&<div style={{marginTop:10,padding:"9px 13px",background:"rgba(91,190,194,.22)",borderRadius:"var(--r1)",fontSize:13,fontWeight:600,color:"#186068"}}>🎉 Valise prête !</div>}
     </div>
     <div style={{margin:"12px 15px 0",padding:"9px 12px",background:"rgba(91,190,194,.1)",borderRadius:"var(--r1)",border:"1px solid rgba(91,190,194,.25)"}}>
@@ -2014,7 +2023,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
                 <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
                   <span style={{fontWeight:600,fontSize:13}}>{cat.label}</span>
                   {catBuy>0&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:99,background:"var(--sa-p)",color:"#2B6650",fontWeight:800}}>{fmtEur(catBuy)}</span>}
-                  {(cl.catUnchecked[cat.id]??0)>0&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:99,background:"var(--am-p)",color:"var(--am)",fontWeight:800}}>⬜ {fmtEur(cl.catUnchecked[cat.id])} restant</span>}
+                  {(cl.catUnchecked[cat.id]??0)>0&&<span style={{fontSize:10,padding:"1px 8px",borderRadius:99,background:"var(--am-p)",color:"var(--am)",fontWeight:800}}>⬜ {fmtEur(cl.catUnchecked[cat.id])} non acheté</span>}
                 </div>
                 <span style={{fontSize:11,color:"var(--g400)",fontWeight:700}}>{done}/{allItems.length}</span>
               </div>
@@ -2033,7 +2042,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
             </div>}
             {(cl.catUnchecked[cat.id]??0)>0&&(
               <div style={{padding:"6px 11px",background:"var(--am-p)",borderRadius:"var(--r1)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Articles non cochés</span>
+                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Non acheté</span>
                 <span style={{fontSize:14,fontWeight:800,color:"var(--am)"}}>{fmtEur(cl.catUnchecked[cat.id])}</span>
               </div>
             )}
@@ -2063,24 +2072,33 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
   const stockSaving=home.grandTotal-home.grandToBuy;
   return(<div style={{paddingBottom:96}}>
     <div style={{background:"linear-gradient(135deg,#FFF0E9,#D8F2F3)",padding:"28px 18px 22px",position:"relative",overflow:"hidden"}}>
-      <div style={{position:"absolute",top:-18,right:18,width:100,height:100,borderRadius:"50%",background:"rgba(240,158,114,.17)"}}/>
+      <div style={{position:"absolute",top:-12,right:14,width:55,height:55,borderRadius:"50%",background:"rgba(240,158,114,.17)"}}/>
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--pe)",textTransform:"uppercase",marginBottom:5}}>Essentiels · {APP_V}</p>
       <h1 style={{fontFamily:"var(--fs)",fontSize:26,lineHeight:1.22,marginBottom:13}}>Maison<br/><em>pour {childrenLabel}</em></h1>
       <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14}}>
         <div style={{position:"relative"}}><Ring pct={home.stats.pct} size={52} color="#F09E72"/>
           <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--pe)"}}>{home.stats.pct}%</span></div>
         <div><p style={{fontSize:17,fontWeight:800}}>{home.stats.done}/{home.stats.total}</p><p style={{fontSize:11.5,color:"var(--g600)"}}>articles acquis</p></div>
-        {home.grandTotal>0&&<div style={{marginLeft:"auto",textAlign:"right"}}>
-          <p style={{fontSize:9,color:"var(--g600)",fontWeight:700,textTransform:"uppercase"}}>Valeur totale</p>
-          <p style={{fontSize:12,fontWeight:700,color:"var(--g600)",textDecoration:stockSaving>0?"line-through":"none"}}>{fmtEur(home.grandTotal)}</p>
-          {stockSaving>0&&<p style={{fontSize:9,color:"var(--gr)",fontWeight:700}}>📦 {fmtEur(stockSaving)} stock</p>}
-          <p style={{fontSize:9,color:"var(--pe)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>À acheter</p>
-          <p style={{fontSize:15,fontWeight:800,color:"var(--pe)"}}>{fmtEur(home.grandToBuy)}</p>
-          {home.grandUnchecked>0&&<><p style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",marginTop:3}}>⬜ Non cochés</p>
-          <p style={{fontSize:13,fontWeight:800,color:"var(--am)"}}>{fmtEur(home.grandUnchecked)}</p></>}
+        {home.grandTotal>0&&<div style={{marginLeft:"auto",textAlign:"right",display:"flex",flexDirection:"column",gap:3}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--g600)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Valeur totale</span>
+            <span style={{fontSize:12,fontWeight:700,color:"var(--g600)"}}>{fmtEur(home.grandTotal)}</span>
+          </div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--pe)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Acheter</span>
+            <span style={{fontSize:15,fontWeight:800,color:"var(--pe)"}}>{fmtEur(home.grandToBuy)}</span>
+          </div>
+          {stockSaving>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--gr)",fontWeight:700,whiteSpace:"nowrap"}}>📦 En stock</span>
+            <span style={{fontSize:11,fontWeight:700,color:"var(--gr)"}}>{fmtEur(stockSaving)}</span>
+          </div>}
+          {home.grandUnchecked>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"var(--am)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>⬜ Non acheté</span>
+            <span style={{fontSize:11,fontWeight:800,color:"var(--am)"}}>{fmtEur(home.grandUnchecked)}</span>
+          </div>}
         </div>}
       </div>
-      <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)" onDark/>
+      <DeclaredBudgetField db={db} label="Budget déclaré (Valise + Maison)"/>
     </div>
     <div style={{display:"flex",gap:6,padding:"11px 15px 0",overflowX:"auto"}}>
       {[{k:"all",l:"Tout"},{k:"high",l:"🔴 Priorité"},{k:"pending",l:"⬜ À acquérir"},{k:"price",l:"💶 Avec prix"},{k:"stock",l:"📦 En stock"},{k:"warn",l:"⚠️ Alertes"}].map(f=>(
@@ -2134,7 +2152,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
             </div>}
             {(home.catUnchecked[cat.id]??0)>0&&(
               <div style={{padding:"6px 11px",background:"var(--am-p)",borderRadius:"var(--r1)",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:2}}>
-                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Articles non cochés</span>
+                <span style={{fontSize:11,color:"var(--am)",fontWeight:700}}>⬜ Non acheté</span>
                 <span style={{fontSize:14,fontWeight:800,color:"var(--am)"}}>{fmtEur(home.catUnchecked[cat.id])}</span>
               </div>
             )}
@@ -2429,7 +2447,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
                   <span style={{fontWeight:700,color:"var(--gr)"}}>{fmtEur(card.value-card.toBuy)}</span>
                 </div>}
                 <div style={{display:"flex",justifyContent:"space-between",paddingTop:3,borderTop:"1px solid var(--g200)",marginTop:1}}>
-                  <span style={{fontWeight:700,color:card.color}}>À acheter</span>
+                  <span style={{fontWeight:700,color:card.color}}>Acheter</span>
                   <span style={{fontWeight:800,color:card.color}}>{fmtEur(card.toBuy)}</span>
                 </div>
                 {db.val&&card.toBuy>0&&<div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
