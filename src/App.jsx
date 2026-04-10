@@ -73,8 +73,8 @@ const G = () => (
     .urgent-item:hover{border-color:var(--rd);box-shadow:var(--sh1);transform:translateY(-1px)}
     .db-wrap{background:rgba(255,255,255,.85);border-radius:var(--r2);border:2px solid rgba(255,255,255,.6);padding:14px 16px;backdrop-filter:blur(8px);transition:all .2s}
     .db-wrap:focus-within{border-color:rgba(255,255,255,.9);box-shadow:0 0 0 3px rgba(255,255,255,.25)}
-    .db-input{font-size:28px;font-weight:800;color:var(--g800);border:none;outline:none;background:transparent;font-family:var(--ff);width:100%;padding:2px 0}
-    .db-input::placeholder{color:var(--g300);font-size:22px}
+    .db-input{font-size:14px;font-weight:800;color:var(--g800);border:none;outline:none;background:transparent;font-family:var(--ff);width:100%;padding:1px 0}
+    .db-input::placeholder{color:var(--g300);font-size:13px}
     .fam-card{background:rgba(255,255,255,.15);border-radius:var(--r2);border:2px solid rgba(255,255,255,.3);padding:12px 14px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:10px}
     .fam-card:hover{background:rgba(255,255,255,.25);border-color:rgba(255,255,255,.5)}
     .child-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:10px;font-weight:700;background:rgba(255,255,255,.2);color:var(--wh)}
@@ -234,7 +234,7 @@ function WelcomeBg({children}) {
       <div style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"36px 20px 48px",position:"relative",zIndex:1}}>
         <div style={{textAlign:"center",marginBottom:26}}>
           <div style={{width:70,height:70,borderRadius:18,background:"rgba(255,255,255,.28)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:38,margin:"0 auto 12px",boxShadow:"0 8px 24px rgba(0,0,0,.14)"}}>👶</div>
-          <h1 style={{fontFamily:"var(--fs)",fontSize:30,color:"var(--wh)",lineHeight:1.15,marginBottom:5}}>Baby<br/><em>Essentials</em></h1>
+          <h1 style={{fontFamily:"var(--fs)",fontSize:26,color:"var(--wh)",lineHeight:1.2,marginBottom:5}}>Baby <em>Essentials</em></h1>
           <p style={{fontSize:12,color:"rgba(255,255,255,.75)",lineHeight:1.6,maxWidth:250}}>Préparez sereinement l'arrivée de votre bébé.</p>
         </div>
         {children}
@@ -1340,14 +1340,22 @@ const Ring=({pct,size=56,color="#5BBEC2"})=>{const r=(size-8)/2,c=2*Math.PI*r;re
 
 function DeclaredBudgetField({db,label="Budget que vous êtes prêts à allouer",onDark=false}){
   const ref=useRef(null);
-  return(<div className="db-wrap" style={onDark?{background:"rgba(255,255,255,.12)",border:"2px solid rgba(255,255,255,.25)"}:{}}>
-    <label htmlFor="db-g" style={{fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:onDark?"rgba(255,255,255,.7)":"var(--g400)",display:"block",marginBottom:4}}>{label}</label>
-    <div style={{display:"flex",alignItems:"center",gap:6}}>
-      <span style={{fontSize:24,fontWeight:800,color:onDark?"rgba(255,255,255,.5)":"var(--g300)"}}>€</span>
-      <input id="db-g" ref={ref} className="db-input" style={{color:onDark?"var(--wh)":"var(--g800)"}} type="text" inputMode="decimal" value={db.raw} placeholder="Saisissez votre budget…" onChange={e=>db.onChange(e.target.value)} onBlur={db.onBlur} onKeyDown={e=>{if(e.key==="Enter"){db.onBlur();ref.current?.blur()}}}/>
+  return(<div className="db-wrap" style={{padding:"10px 14px",...(onDark?{background:"rgba(255,255,255,.12)",border:"2px solid rgba(255,255,255,.25)"}:{})}}>
+    {/* Label + input sur la même ligne */}
+    <div style={{display:"flex",alignItems:"center",gap:8}}>
+      <label htmlFor="db-g" style={{fontSize:10,fontWeight:800,letterSpacing:1.2,textTransform:"uppercase",color:onDark?"rgba(255,255,255,.7)":"var(--g600)",whiteSpace:"nowrap",flexShrink:0}}>{label}</label>
+      <div style={{display:"flex",alignItems:"center",gap:4,flex:1,minWidth:0}}>
+        <span style={{fontSize:14,fontWeight:800,color:onDark?"rgba(255,255,255,.5)":"var(--g400)",flexShrink:0}}>€</span>
+        <input id="db-g" ref={ref} className="db-input"
+          style={{color:onDark?"var(--wh)":"var(--g800)",fontSize:14,fontWeight:800}}
+          type="text" inputMode="decimal" value={db.raw}
+          placeholder="—"
+          onChange={e=>db.onChange(e.target.value)}
+          onBlur={db.onBlur}
+          onKeyDown={e=>{if(e.key==="Enter"){db.onBlur();ref.current?.blur()}}}/>
+      </div>
     </div>
-    {db.err?<p style={{fontSize:11,color:"var(--rd)",marginTop:3,fontWeight:600}}>⚠ {db.err}</p>
-    :<p style={{fontSize:10,color:onDark?"rgba(255,255,255,.5)":"var(--g400)",marginTop:3}}>{db.val?`${fmtEur(db.val)} enregistré · modifiable à tout moment`:"Ce champ est libre — saisissez votre enveloppe disponible"}</p>}
+    {db.err&&<p style={{fontSize:10,color:"var(--rd)",marginTop:3,fontWeight:600}}>⚠ {db.err}</p>}
   </div>);
 }
 
@@ -1980,7 +1988,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
     <div style={{background:"linear-gradient(135deg,#D8F2F3,#FFF0E9)",padding:"28px 18px 22px",position:"relative",overflow:"hidden"}}>
       <div style={{position:"absolute",top:-20,right:-14,width:60,height:60,borderRadius:"50%",background:"rgba(91,190,194,.13)"}}/>
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--aq)",textTransform:"uppercase",marginBottom:5}}>CHU Toulouse</p>
-      <h1 style={{fontFamily:"var(--fs)",fontSize:26,lineHeight:1.22,marginBottom:13}}>Valise de<br/><em>Maternité</em></h1>
+      <h1 style={{fontFamily:"var(--fs)",fontSize:22,lineHeight:1.2,marginBottom:10}}>Valise de <em>Maternité</em></h1>
       <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14}}>
         <div style={{position:"relative"}}><Ring pct={cl.stats.pct} size={52} color="#5BBEC2"/>
           <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--aq)"}}>{cl.stats.pct}%</span></div>
@@ -2074,7 +2082,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
     <div style={{background:"linear-gradient(135deg,#FFF0E9,#D8F2F3)",padding:"28px 18px 22px",position:"relative",overflow:"hidden"}}>
       <div style={{position:"absolute",top:-12,right:14,width:55,height:55,borderRadius:"50%",background:"rgba(240,158,114,.17)"}}/>
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--pe)",textTransform:"uppercase",marginBottom:5}}>Essentiels · {APP_V}</p>
-      <h1 style={{fontFamily:"var(--fs)",fontSize:26,lineHeight:1.22,marginBottom:13}}>Maison<br/><em>pour {childrenLabel}</em></h1>
+      <h1 style={{fontFamily:"var(--fs)",fontSize:22,lineHeight:1.2,marginBottom:10}}>Maison <em>pour {childrenLabel}</em></h1>
       <div style={{display:"flex",alignItems:"center",gap:13,marginBottom:14}}>
         <div style={{position:"relative"}}><Ring pct={home.stats.pct} size={52} color="#F09E72"/>
           <span style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:800,color:"var(--pe)"}}>{home.stats.pct}%</span></div>
@@ -2296,7 +2304,7 @@ function TrackerPage({family}){
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:1.8,color:"var(--sa)",textTransform:"uppercase",marginBottom:4}}>Journal quotidien</p>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
         <div>
-          <h1 style={{fontFamily:"var(--fs)",fontSize:24,lineHeight:1.22,marginBottom:3}}>Suivi de<br/><em>{BB.join(" & ")}</em></h1>
+          <h1 style={{fontFamily:"var(--fs)",fontSize:24,lineHeight:1.22,marginBottom:3}}>Suivi de <em>{BB.join(" & ")}</em></h1>
           <p style={{fontSize:11,color:"var(--g600)",textTransform:"capitalize"}}>{todayStr}</p>
         </div>
         {/* Résumé global */}
@@ -2396,7 +2404,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
         <div key={i} style={{position:"absolute",borderRadius:"50%",width:b.w,height:b.w,top:b.t,left:b.l,background:"rgba(255,255,255,.09)"}}/>
       ))}
       <p style={{fontSize:10.5,fontWeight:800,letterSpacing:2,color:"rgba(255,255,255,.78)",textTransform:"uppercase",marginBottom:6}}>Bonjour 👋</p>
-      <h1 style={{fontFamily:"var(--fs)",fontSize:28,color:"var(--wh)",lineHeight:1.2,marginBottom:14}}>Baby<br/><em>Essentials</em></h1>
+      <h1 style={{fontFamily:"var(--fs)",fontSize:24,color:"var(--wh)",lineHeight:1.2,marginBottom:10}}>Baby <em>Essentials</em></h1>
       <div className="fam-card" style={{marginBottom:14}} onClick={()=>setFamilyOpen(true)}>
         <span style={{fontSize:22}}>{nbChildren>1?"👨‍👩‍👧‍👦":"👶"}</span>
         <div style={{flex:1,minWidth:0}}>
