@@ -129,6 +129,106 @@ function cloudKey(code, key) {
   return `be_${code}_${key}`;
 }
 
+
+/* ── Construire le payload structuré pour la publication Notion ── */
+function buildPublishPayload() {
+  // Articles valise
+  const ckCl  = JSON.parse(localStorage.getItem('cl6')  || '{}');
+  const cxCl  = JSON.parse(localStorage.getItem('cl6x') || '[]');
+  const hiCl  = JSON.parse(localStorage.getItem('cl6h') || '[]');
+  const ovRaw = JSON.parse(localStorage.getItem('tn_ov_v6') || '{}');
+
+  function resolveItem(base) {
+    const ov = ovRaw[base.id];
+    return ov ? {...base, ...ov} : base;
+  }
+
+  const valise = [];
+  CLINIC_CATS.forEach(cat => {
+    cat.items.forEach(raw => {
+      if (raw.isPlaceholder) return;
+      const item = resolveItem(raw);
+      valise.push({
+        id:        item.id,
+        nom:       item.text,
+        categorie: cat.label,
+        coche:     !!ckCl[item.id],
+        masque:    hiCl.includes(item.id),
+        priorite:  item.priority || 'medium',
+        prix:      typeof item.price === 'number' ? item.price : null,
+        qte:       typeof item.qty   === 'number' ? item.qty   : null,
+        stock:     typeof item.stock === 'number' ? item.stock : null,
+        magasin:   item.store || null,
+        desc:      item.desc  || null,
+      });
+    });
+    cxCl.filter(x => x.cid === cat.id).forEach(x => {
+      valise.push({
+        id: x.id, nom: x.text, categorie: cat.label,
+        coche: !!ckCl[x.id], masque: false,
+        priorite: x.priority || 'medium',
+        prix: typeof x.price === 'number' ? x.price : null,
+        qte:  typeof x.qty   === 'number' ? x.qty   : null,
+        stock: null, magasin: null, desc: x.desc || null,
+      });
+    });
+  });
+
+  // Articles maison
+  const ckHm = JSON.parse(localStorage.getItem('hm6')  || '{}');
+  const cxHm = JSON.parse(localStorage.getItem('hm6x') || '[]');
+  const hiHm = JSON.parse(localStorage.getItem('hm6h') || '[]');
+
+  const maison = [];
+  HOME_CATS.forEach(cat => {
+    cat.items.forEach(raw => {
+      if (raw.isPlaceholder) return;
+      const item = resolveItem(raw);
+      maison.push({
+        id:        item.id,
+        nom:       item.text,
+        categorie: cat.label,
+        coche:     !!ckHm[item.id],
+        masque:    hiHm.includes(item.id),
+        priorite:  item.priority || 'medium',
+        prix:      typeof item.price === 'number' ? item.price : null,
+        qte:       typeof item.qty   === 'number' ? item.qty   : null,
+        stock:     typeof item.stock === 'number' ? item.stock : null,
+        magasin:   item.store || null,
+        desc:      item.desc  || null,
+      });
+    });
+    cxHm.filter(x => x.cid === cat.id).forEach(x => {
+      maison.push({
+        id: x.id, nom: x.text, categorie: cat.label,
+        coche: !!ckHm[x.id], masque: false,
+        priorite: x.priority || 'medium',
+        prix: typeof x.price === 'number' ? x.price : null,
+        qte:  typeof x.qty   === 'number' ? x.qty   : null,
+        stock: null, magasin: null, desc: x.desc || null,
+      });
+    });
+  });
+
+  // Journal (30 derniers jours)
+  const journal = JSON.parse(localStorage.getItem('tl6') || '[]');
+
+  // CAF
+  const cafRaw = JSON.parse(localStorage.getItem('tn_caf_v6') || '{}');
+  const caf = Object.entries(cafRaw).map(([id, a]) => ({
+    id, label: a.label || id,
+    amount: typeof a.amount === 'number' ? a.amount : null,
+    statut: a.statut || 'À faire',
+    cat: a.cat || '', note: a.note || '',
+  }));
+
+  const budgetRaw = localStorage.getItem('tn_declared_v6');
+  let budgetDeclare = null;
+  try { budgetDeclare = budgetRaw ? JSON.parse(budgetRaw)?.val || null : null; } catch {}
+
+  return { valise, maison, journal, caf, budgetDeclare };
+}
+
 function useAuth() {
   const [session,    setSession]    = useState(() => {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || null; }
@@ -197,6 +297,15 @@ function useAuth() {
         const app = json.syncAppareil ? ` (${json.syncAppareil})` : '';
         setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}${app}`);
         setTimeout(() => setSyncStatus('idle'), 4000);
+        // Publication asynchrone dans les bases de visualisation Notion (fire & forget)
+        try {
+          const payload = buildPublishPayload();
+          fetch('/api/family/publish', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, ...payload }),
+          }).catch(() => {}); // silencieux — non bloquant
+        } catch {}
       } else {
         setSyncStatus('error'); setSyncMsg('Erreur de sync Notion');
       }
