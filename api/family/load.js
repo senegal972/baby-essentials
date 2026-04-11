@@ -1,6 +1,27 @@
 const NOTION_TOKEN = process.env.NOTION_TOKEN;
 const DATABASE_ID  = process.env.NOTION_DATABASE_ID;
 
+// Correspondance colonne Notion → clé localStorage
+const FIELD_MAP = {
+  'Famille':        'tn_family_v6',
+  'CAF':            'tn_caf_v6',
+  'Budget':         'tn_declared_v6',
+  'Valise Coches':  'cl6',
+  'Valise Perso':   'cl6x',
+  'Valise Masques': 'cl6h',
+  'Maison Coches':  'hm6',
+  'Maison Perso':   'hm6x',
+  'Maison Masques': 'hm6h',
+  'Journal':        'tl6',
+  'Overrides':      'tn_ov_v6',
+};
+
+function readRichText(prop) {
+  if (!prop?.rich_text) return null;
+  const raw = prop.rich_text.map(t => t.plain_text).join('');
+  return raw || null;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -19,7 +40,9 @@ export default async function handler(req, res) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        filter: { property: 'Code Famille', title: { equals: code.toUpperCase() } }
+        filter: { property: 'Code Famille', title: { equals: code.toUpperCase() } },
+        sorts:  [{ timestamp: 'last_edited_time', direction: 'descending' }],
+        page_size: 1,
       }),
     });
 
@@ -28,16 +51,29 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Notion error', details: err });
     }
 
-    const data = await r.json();
-    if (data.results.length === 0) return res.json({ found: false });
+    const notionData = await r.json();
+    if (notionData.results.length === 0) return res.json({ found: false });
 
-    const page    = data.results[0];
-    const rawData = (page.properties['Données']?.rich_text || []).map(t => t.plain_text).join('');
+    const page  = notionData.results[0];
+    const props = page.properties;
 
-    let parsed = {};
-    try { parsed = rawData ? JSON.parse(rawData) : {}; } catch {}
+    // Lire chaque groupe séparément
+    const data = {};
+    for (const [notionField, localKey] of Object.entries(FIELD_MAP)) {
+      const val = readRichText(props[notionField]);
+      if (val) data[localKey] = val;
+    }
 
-    return res.json({ found: true, pageId: page.id, data: parsed });
+    return res.json({
+      found:         true,
+      pageId:        page.id,
+      data,
+      syncVersion:   props['Sync Version']?.number   ?? 0,
+      syncAt:        readRichText(props['Sync At'])   ?? null,
+      syncAppareil:  readRichText(props['Sync Appareil']) ?? null,
+      nomFamille:    readRichText(props['Nom Famille'])   ?? null,
+    });
+
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }

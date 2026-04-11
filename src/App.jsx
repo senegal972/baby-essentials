@@ -135,7 +135,7 @@ function useAuth() {
     catch { return null; }
   });
   const [loading,    setLoading]    = useState(false);
-  const [syncStatus, setSyncStatus] = useState('idle');
+  const [syncStatus, setSyncStatus] = useState('idle'); // idle|syncing|synced|error
   const [syncMsg,    setSyncMsg]    = useState('');
 
   const saveSession = useCallback(sess => {
@@ -144,24 +144,29 @@ function useAuth() {
     else      localStorage.removeItem(SESSION_KEY);
   }, []);
 
-  /* ── Charger les données Notion → localStorage ── */
+  /* ── Charger Notion → localStorage (à la connexion) ── */
   const loadFromNotion = useCallback(async code => {
     try {
       const r = await fetch(`/api/family/load?code=${encodeURIComponent(code)}`);
-      if (!r.ok) return null;
+      if (!r.ok) return {};
       const json = await r.json();
-      if (!json.found) return null;
-      // Rehydrate each key into localStorage
+      if (!json.found) return {};
+      // Rehydrater chaque clé dans localStorage
       const data = json.data || {};
       for (const key of SYNC_KEYS) {
         if (data[key]) localStorage.setItem(key, data[key]);
       }
-      return json.pageId;
-    } catch { return null; }
+      return {
+        pageId:       json.pageId       ?? null,
+        syncVersion:  json.syncVersion  ?? 0,
+        syncAt:       json.syncAt       ?? null,
+        syncAppareil: json.syncAppareil ?? null,
+      };
+    } catch { return {}; }
   }, []);
 
   /* ── Envoyer localStorage → Notion ── */
-  const syncToNotion = useCallback(async (code, familyName, pageId, silent=false) => {
+  const syncToNotion = useCallback(async (code, familyName, pageId, syncVersion, silent=false) => {
     if (!code) return;
     if (!silent) { setSyncStatus('syncing'); setSyncMsg('Synchronisation…'); }
     try {
@@ -173,29 +178,49 @@ function useAuth() {
       const r = await fetch('/api/family/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, familyName, pageId, data }),
+        body: JSON.stringify({ code, familyName, pageId, data, syncVersion }),
       });
       const json = await r.json();
       if (json.ok) {
-        // Mémoriser le pageId pour les prochaines syncs
-        const sess = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-        if (sess) { sess.pageId = json.pageId; localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); setSession(s => s ? {...s, pageId: json.pageId} : s); }
+        // Mettre à jour la session avec les nouvelles métadonnées
+        const updatedSess = s => s ? {
+          ...s,
+          pageId:      json.pageId,
+          syncVersion: json.syncVersion,
+          syncAt:      json.syncAt,
+          syncAppareil:json.syncAppareil,
+        } : s;
+        setSession(updatedSess);
+        const stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+        if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
         setSyncStatus('synced');
-        setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}`);
-        setTimeout(() => setSyncStatus('idle'), 3000);
+        const app = json.syncAppareil ? ` (${json.syncAppareil})` : '';
+        setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}${app}`);
+        setTimeout(() => setSyncStatus('idle'), 4000);
       } else {
         setSyncStatus('error'); setSyncMsg('Erreur de sync Notion');
       }
     } catch {
-      setSyncStatus('error'); setSyncMsg('Erreur réseau');
+      setSyncStatus('error'); setSyncMsg('Erreur réseau — données conservées localement');
     }
   }, []);
 
   /* ── Auto-sync toutes les 60s ── */
   useEffect(() => {
     if (session?.mode !== 'account') return;
-    const t = setInterval(() => syncToNotion(session.code, session.familyName, session.pageId, true), 60000);
+    const t = setInterval(() =>
+      syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true),
+      60000
+    );
     return () => clearInterval(t);
+  }, [session, syncToNotion]);
+
+  /* ── Sync à la reprise de focus (changement d'onglet / retour sur l'app) ── */
+  useEffect(() => {
+    if (session?.mode !== 'account') return;
+    const onFocus = () => syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [session, syncToNotion]);
 
   const loginGuest = useCallback(() => saveSession({ mode: 'guest' }), [saveSession]);
@@ -204,20 +229,30 @@ function useAuth() {
     const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,16);
     if (code.length < 4) return { ok:false, error:'Le code famille doit contenir au moins 4 caractères.' };
     setLoading(true);
-    const pageId = await loadFromNotion(code);
-    const sess = { mode:'account', code, familyName: (familyName||'Ma Famille').trim(), pageId };
+    const meta = await loadFromNotion(code);
+    const sess = {
+      mode: 'account',
+      code,
+      familyName:   (familyName||'Ma Famille').trim(),
+      pageId:       meta.pageId       ?? null,
+      syncVersion:  meta.syncVersion  ?? 0,
+      syncAt:       meta.syncAt       ?? null,
+      syncAppareil: meta.syncAppareil ?? null,
+    };
     saveSession(sess);
     setLoading(false);
     return { ok:true };
   }, [loadFromNotion, saveSession]);
 
   const logout = useCallback(async () => {
-    if (session?.mode === 'account') await syncToNotion(session.code, session.familyName, session.pageId, true);
+    if (session?.mode === 'account')
+      await syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
     saveSession(null);
   }, [session, syncToNotion, saveSession]);
 
   const manualSync = useCallback(() => {
-    if (session?.mode === 'account') syncToNotion(session.code, session.familyName, session.pageId);
+    if (session?.mode === 'account')
+      syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, false);
   }, [session, syncToNotion]);
 
   return { session, loading, syncStatus, syncMsg,
