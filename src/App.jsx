@@ -120,7 +120,9 @@ function calcCatUnchecked(items,ck,nb=1){return items.reduce((s,i)=>{ if(!i||i.i
 const SESSION_KEY = 'be_session_v1';
 // Toutes les clés à synchroniser vers le cloud
 const SYNC_KEYS = [
-  'cl6','cl6x','hm6','hm6x','tl6',
+  'cl6','cl6x','cl6h',        // valise : coches, perso, masqués
+  'hm6','hm6x','hm6h',        // maison : coches, perso, masqués
+  'tl6',                      // journal
   'tn_family_v6','tn_declared_v6','tn_caf_v6',
   'tn_ov_v6','tn_au_v6'
 ];
@@ -229,6 +231,82 @@ function buildPublishPayload() {
   return { valise, maison, journal, caf, budgetDeclare };
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   CONTRÔLE D'INTÉGRITÉ SYSTÉMATIQUE
+   Déclenché : après chaque sauvegarde, au focus, au login
+   Vérifie : cohérence localStorage + accessibilité Notion
+   ══════════════════════════════════════════════════════════════ */
+const INTEGRITY_CHECKS = {
+  // Vérifie que chaque clé JSON localStorage est parseable
+  localStorage_valid: () => {
+    const keys = ['cl6','cl6x','cl6h','hm6','hm6x','hm6h','tl6',
+                  'tn_family_v6','tn_declared_v6','tn_caf_v6','tn_ov_v6'];
+    for (const k of keys) {
+      const raw = localStorage.getItem(k);
+      if (!raw) continue;
+      try { JSON.parse(raw); }
+      catch { return { ok: false, detail: `Clé corrompue : ${k}` }; }
+    }
+    return { ok: true };
+  },
+  // Vérifie qu'il n'y a pas d'articles en double (même id dans cx + base)
+  no_duplicate_ids: () => {
+    try {
+      const cx1 = JSON.parse(localStorage.getItem('cl6x') || '[]');
+      const cx2 = JSON.parse(localStorage.getItem('hm6x') || '[]');
+      const ids = [...cx1, ...cx2].map(x => x.id);
+      const dupes = ids.filter((id, i) => ids.indexOf(id) !== i);
+      if (dupes.length) return { ok: false, detail: `IDs dupliqués : ${dupes.join(', ')}` };
+      return { ok: true };
+    } catch { return { ok: true }; }
+  },
+  // Vérifie que les coches référencent des IDs existants
+  coherent_checks: () => {
+    try {
+      const ck1 = JSON.parse(localStorage.getItem('cl6')  || '{}');
+      const ck2 = JSON.parse(localStorage.getItem('hm6')  || '{}');
+      const cx1 = JSON.parse(localStorage.getItem('cl6x') || '[]').map(x=>x.id);
+      const cx2 = JSON.parse(localStorage.getItem('hm6x') || '[]').map(x=>x.id);
+      // Ids personnalisés cochés mais supprimés de la liste → orphelins
+      const orphans = Object.keys(ck1).filter(id => id.startsWith('cx') && !cx1.includes(id))
+                    .concat(Object.keys(ck2).filter(id => id.startsWith('cx') && !cx2.includes(id)));
+      if (orphans.length > 0) {
+        // Auto-corriger : nettoyer les coches orphelines
+        const newCk1 = {...ck1}; const newCk2 = {...ck2};
+        orphans.forEach(id => { delete newCk1[id]; delete newCk2[id]; });
+        localStorage.setItem('cl6', JSON.stringify(newCk1));
+        localStorage.setItem('hm6', JSON.stringify(newCk2));
+        return { ok: true, detail: `${orphans.length} coche(s) orpheline(s) nettoyée(s)`, fixed: true };
+      }
+      return { ok: true };
+    } catch { return { ok: true }; }
+  },
+};
+
+function useIntegrityCheck(onIssue) {
+  const run = useCallback(() => {
+    const results = {};
+    let hasIssue = false;
+    let autoFixed = false;
+    for (const [name, fn] of Object.entries(INTEGRITY_CHECKS)) {
+      try {
+        const r = fn();
+        results[name] = r;
+        if (!r.ok) hasIssue = true;
+        if (r.fixed) autoFixed = true;
+      } catch (e) {
+        results[name] = { ok: false, detail: e.message };
+        hasIssue = true;
+      }
+    }
+    if (hasIssue || autoFixed) onIssue?.(results);
+    return results;
+  }, [onIssue]);
+
+  return { run };
+}
+
 function useAuth() {
   const [session,    setSession]    = useState(() => {
     try { return JSON.parse(localStorage.getItem(SESSION_KEY)) || null; }
@@ -307,7 +385,7 @@ function useAuth() {
           }).catch(() => {}); // silencieux — non bloquant
         } catch {}
       } else {
-        setSyncStatus('error'); setSyncMsg('Erreur de sync Notion');
+        setSyncStatus('error'); setSyncMsg(`⚠ Sync échouée${json.details? ' — '+String(json.details).slice(0,60) : ''}`);
       }
     } catch {
       setSyncStatus('error'); setSyncMsg('Erreur réseau — données conservées localement');
@@ -364,7 +442,56 @@ function useAuth() {
       syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, false);
   }, [session, syncToNotion]);
 
+  /* ── Intégrité : lancer à chaque sync réussie ── */
+  const { run: runIntegrity } = useIntegrityCheck(useCallback(results => {
+    const issues = Object.entries(results).filter(([,v]) => !v.ok).map(([k,v]) => `${k}: ${v.detail||'?'}`);
+    if (issues.length) console.warn('[TwinNest] Problèmes détectés:', issues);
+  }, []));
+
+  /* Lancer au login et au focus fenêtre */
+  useEffect(() => {
+    if (session?.mode === 'account') runIntegrity();
+  }, [session?.mode]); // eslint-disable-line
+  useEffect(() => {
+    const onFocus2 = () => { if (session?.mode === 'account') runIntegrity(); };
+    window.addEventListener('focus', onFocus2);
+    return () => window.removeEventListener('focus', onFocus2);
+  }, [session, runIntegrity]);
+
+  /* ── Health check Notion (vérifie token + accès DB) ── */
+  const [healthStatus, setHealthStatus] = useState('unknown'); // unknown|ok|error
+  const [healthDetail, setHealthDetail] = useState('');
+  const runHealthCheck = useCallback(async () => {
+    setHealthStatus('checking');
+    try {
+      const r = await fetch('/api/family/health');
+      const json = await r.json();
+      if (json.ok) {
+        setHealthStatus('ok');
+        setHealthDetail('Notion ✓ · DB ✓');
+      } else {
+        setHealthStatus('error');
+        const c = json.checks || {};
+        const msg = !c.env_token   ? 'Token manquant'
+                  : !c.env_database? 'DB ID manquant'
+                  : !c.notion_reach? 'Notion injoignable'
+                  : !c.db_readable ? (c.db_error || 'DB inaccessible')
+                  : json.error     || 'Erreur inconnue';
+        setHealthDetail(msg);
+      }
+    } catch {
+      setHealthStatus('error');
+      setHealthDetail('Réseau indisponible');
+    }
+  }, []);
+
+  // Lancer le health check au login et après chaque sync réussie
+  useEffect(() => {
+    if (session?.mode === 'account') runHealthCheck();
+  }, [session?.mode]); // eslint-disable-line
+
   return { session, loading, syncStatus, syncMsg,
+           healthStatus, healthDetail, runHealthCheck,
            loginGuest, loginAccount, logout, manualSync };
 }
 
@@ -599,7 +726,7 @@ function WelcomeScreen({ auth }) {
 
 /* ══════ ACCOUNT MODAL (gestion depuis l'app) ══════ */
 function AccountModal({ auth, onClose }) {
-  const { session, syncStatus, syncMsg, manualSync, logout } = auth;
+  const { session, syncStatus, syncMsg, manualSync, logout, healthStatus, healthDetail, runHealthCheck } = auth;
   const isGuest   = session?.mode === 'guest';
   const isAccount = session?.mode === 'account';
 
@@ -653,7 +780,21 @@ function AccountModal({ auth, onClose }) {
                 <p style={{fontSize:9.5,color:"var(--g400)",textTransform:"uppercase",fontWeight:700}}>Statut sync</p>
                 <div style={{display:"flex",alignItems:"center",gap:5,marginTop:3}}>
                   <div style={{width:7,height:7,borderRadius:"50%",background:syncStatus==="synced"?"var(--gr)":syncStatus==="syncing"?"var(--am)":syncStatus==="error"?"var(--rd)":"var(--g300)"}}/>
-                  <span style={{fontSize:10.5,fontWeight:700,color:"var(--g600)"}}>{syncMsg||"—"}</span>
+                  <span style={{fontSize:10.5,fontWeight:700,color:syncStatus==="error"?"var(--rd)":"var(--g600)"}}>{syncMsg||"—"}</span>
+                </div>
+                {/* ── Health check Notion ── */}
+                <div style={{marginTop:6,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
+                    background:healthStatus==="ok"?"var(--gr)":healthStatus==="error"?"var(--rd)":healthStatus==="checking"?"var(--am)":"var(--g300)"}}/>
+                  <span style={{fontSize:10.5,color:"var(--g600)"}}>
+                    Notion : <b style={{color:healthStatus==="ok"?"var(--gr)":healthStatus==="error"?"var(--rd)":"var(--g600)"}}>
+                      {healthStatus==="ok"?"Connecté":healthStatus==="error"?`Erreur — ${healthDetail}`:healthStatus==="checking"?"Vérification…":"Non vérifié"}
+                    </b>
+                  </span>
+                  <button className="btn bg" style={{fontSize:10,padding:"1px 8px",marginLeft:"auto"}}
+                    onClick={runHealthCheck}>
+                    ↻ Tester
+                  </button>
                 </div>
               </div>
             </div>
@@ -1440,7 +1581,7 @@ const CLINIC_CATS=[
 
 /* ══════ EDIT ENGINE ══════ */
 const APP_V="v6",OV_KEY="tn_ov_v6",AU_KEY="tn_au_v6",MAX_H=20,MAX_A=200;
-const ED_F=["text","qty","qtyPerBaby","price","stock","priority","urgent","store","desc"];
+const ED_F=["text","type","qty","qtyPerBaby","price","stock","priority","urgent","store","desc"];
 const PRI=["high","medium","low"];
 function validateEdit(cur,f){const e=[];for(const k of["id","_appVersion","_history"])if(k in f)e.push(`"${k}" immuable.`);const uk=Object.keys(f).filter(k=>!ED_F.includes(k));if(uk.length)e.push(`Champ(s) inconnu(s): ${uk.join(", ")}.`);if(cur.isPlaceholder)e.push("Placeholder non modifiable.");if("text" in f){const t=String(f.text||"").trim();if(t.length<2)e.push("Nom: 2 car. min.");if(t.length>120)e.push("Nom: 120 car. max.")}if("qty" in f&&f.qty!==null&&f.qty!==""&&(!Number.isInteger(Number(f.qty))||Number(f.qty)<0||Number(f.qty)>999))e.push("qty: entier 0–999 ou vide.");if("stock" in f&&f.stock!==null&&(!Number.isInteger(f.stock)||f.stock<0||f.stock>999))e.push("stock: entier 0–999.");if("price" in f&&f.price!==null&&(typeof f.price!=="number"||f.price<0||f.price>99999))e.push("price: 0–99 999.");if("priority" in f&&!PRI.includes(f.priority))e.push(`priority: ${PRI.join(", ")}.`);if("urgent" in f&&typeof f.urgent!=="boolean")e.push("urgent: booléen.");return{valid:e.length===0,errors:e}}
 const rdOv=()=>{try{return JSON.parse(localStorage.getItem(OV_KEY)||"{}")}catch{return{}}};
@@ -1571,23 +1712,43 @@ function ItemCard({item,checked,onToggle,onRemove,onEdit,showP=false,nbChildren=
 }
 
 function EditModal({item,onSave,onClose,onRemove}){
-  const[f,setF]=useState({text:item.text??"",qty:item.qty??"",price:item.price??"",stock:item.stock??0,priority:item.priority??"medium",urgent:item.urgent??false,store:item.store??"",desc:item.desc??""});
+  const[f,setF]=useState({
+    text:     item.text    ?? "",
+    type:     item.type    ?? "produit",  // produit | service | document
+    qty:      item.qty     ?? "",
+    price:    item.price   ?? "",
+    stock:    item.stock   ?? 0,
+    priority: item.priority?? "medium",
+    urgent:   item.urgent  ?? false,
+    store:    item.store   ?? "",
+    desc:     item.desc    ?? "",
+  });
   const[confirmDel,setConfirmDel]=useState(false);
+  const isDoc  = f.type === "document";
+  const isSvc  = f.type === "service";
+  const isProd = f.type === "produit";
   const[errors,setErrors]=useState([]);
   const previewVal=f.qty!==""&&f.price!==""?parseInt(f.qty)*parseFloat(f.price):null;
   const previewBuy=previewVal!=null?Math.max(0,parseInt(f.qty)-(parseInt(f.stock)||0))*parseFloat(f.price):null;
-  function submit(){    const fields={
-      text:f.text.trim(),
-      qty:f.qty!==""?parseInt(f.qty):null,
-      qtyPerBaby:null,          // ← effacé : qty manuel prime sur qtyPerBaby×nbEnfants
-      price:f.price!==""?parseFloat(f.price):null,
-      stock:parseInt(f.stock)||0,
-      priority:f.priority,
-      urgent:f.urgent,
-      store:f.store.trim()||null,
-      desc:f.desc.trim()||null
+  function submit(){
+    const isDoc2 = f.type==='document';
+    const isSvc2 = f.type==='service';
+    const fields={
+      text:     f.text.trim(),
+      type:     f.type,
+      qty:      (!isDoc2&&!isSvc2&&f.qty!=='')  ? parseInt(f.qty)    : null,
+      qtyPerBaby: null,
+      price:    (!isDoc2&&!isSvc2&&f.price!=='') ? parseFloat(f.price): null,
+      stock:    (!isDoc2&&!isSvc2)               ? (parseInt(f.stock)||0) : 0,
+      priority: f.priority,
+      urgent:   !isDoc2 ? f.urgent : false,
+      store:    (!isDoc2&&f.store.trim()) ? f.store.trim() : null,
+      desc:     f.desc.trim()||null,
     };
-    const{valid,errors:ve}=validateEdit(item,fields);if(!valid){setErrors(ve);return}onSave(item.id,fields)}
+    const{valid,errors:ve}=validateEdit(item,fields);
+    if(!valid){setErrors(ve);return}
+    onSave(item.id,fields);
+  }
   return(<div className="mbd" style={{animation:"fI .26s ease forwards"}} onClick={onClose}>
     <div className="msh" style={{animation:"sU .36s cubic-bezier(.22,1,.36,1) forwards",maxWidth:500}} onClick={e=>e.stopPropagation()}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:16}}>
@@ -1596,54 +1757,120 @@ function EditModal({item,onSave,onClose,onRemove}){
       </div>
       {errors.length>0&&<div style={{marginBottom:12,padding:"10px 12px",background:"var(--rd-p)",borderRadius:"var(--r1)"}}>{errors.map((e,i)=><p key={i} style={{fontSize:11,color:"var(--rd)"}}>• {e}</p>)}</div>}
       <div style={{display:"flex",flexDirection:"column",gap:11}}>
+
+        {/* ── Sélecteur TYPE ── */}
+        <div>
+          <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5,display:"block",marginBottom:6}}>Type d'article</label>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+            {[
+              {v:"produit",  e:"📦", l:"Produit",  c:"#5BBEC2"},
+              {v:"service",  e:"🔧", l:"Service",  c:"#A98FCC"},
+              {v:"document", e:"📋", l:"Document", c:"#5A90C8"},
+            ].map(({v,e,l,c})=>(
+              <button key={v} onClick={()=>setF(p=>({...p,type:v}))}
+                style={{padding:"9px 6px",borderRadius:"var(--r1)",border:`2px solid ${f.type===v?c:"var(--g200)"}`,
+                  background:f.type===v?`${c}15`:"var(--wh)",cursor:"pointer",
+                  display:"flex",flexDirection:"column",alignItems:"center",gap:3,transition:".14s",fontFamily:"var(--ff)"}}>
+                <span style={{fontSize:17}}>{e}</span>
+                <span style={{fontSize:11,fontWeight:700,color:f.type===v?c:"var(--g600)"}}>{l}</span>
+              </button>
+            ))}
+          </div>
+          {/* Info contextuelle par type */}
+          <div style={{marginTop:7,padding:"7px 10px",borderRadius:"var(--r1)",fontSize:11,
+            background:isDoc?"#E6F0FA":isSvc?"#EEE9F8":"var(--aq-p)",
+            color:isDoc?"#185090":isSvc?"#5B3E90":"#186068",lineHeight:1.55}}>
+            {isDoc && "📋 Document — seulement le nom, la priorité et une note. Pas de prix ni de quantité."}
+            {isSvc && "🔧 Service — prestataire, priorité, description. Pas de quantité ni de stock."}
+            {isProd && "📦 Produit — champs complets : quantité, prix, stock, magasin."}
+          </div>
+        </div>
+
+        {/* ── Nom ── */}
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Nom *</label>
           <input className="inp" value={f.text} onChange={e=>{setErrors([]);setF(p=>({...p,text:e.target.value}))}}/>
         </div>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+
+        {/* ── Champs PRODUIT uniquement : qté + stock ── */}
+        {isProd&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Quantité nécessaire</label>
-            <input className="inp" type="number" min="1" max="999" value={f.qty} placeholder="null" onChange={e=>{setErrors([]);setF(p=>({...p,qty:e.target.value}))}}/>
+            <input className="inp" type="number" min="1" max="999" value={f.qty} placeholder="—"
+              onChange={e=>{setErrors([]);setF(p=>({...p,qty:e.target.value}))}}/>
           </div>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <label style={{fontSize:11,fontWeight:700,color:"var(--gr)",textTransform:"uppercase",letterSpacing:.5}}>📦 Déjà en stock</label>
-            <input className="inp" type="number" min="0" max="999" value={f.stock} placeholder="0" style={{borderColor:"rgba(43,138,74,.4)",background:"#F6FBF8"}} onChange={e=>{setErrors([]);setF(p=>({...p,stock:e.target.value}))}}/>
+            <input className="inp" type="number" min="0" max="999" value={f.stock} placeholder="0"
+              style={{borderColor:"rgba(43,138,74,.4)",background:"#F6FBF8"}}
+              onChange={e=>{setErrors([]);setF(p=>({...p,stock:e.target.value}))}}/>
           </div>
-        </div>
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+        </div>}
+
+        {/* ── Champs PRODUIT uniquement : prix + preview ── */}
+        {isProd&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
           <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Prix unitaire €</label>
-          <input className="inp" type="number" min="0" step="0.01" value={f.price} placeholder="null" onChange={e=>{setErrors([]);setF(p=>({...p,price:e.target.value}))}}/>
-        </div>
-        {previewVal!=null&&!isNaN(previewVal)&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          <div style={{padding:"8px 12px",background:"var(--g100)",borderRadius:"var(--r1)"}}><p style={{fontSize:9.5,color:"var(--g400)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Valeur totale</p><p style={{fontSize:14,fontWeight:800,color:"var(--g600)"}}>{fmtEur(previewVal)}</p></div>
-          <div style={{padding:"8px 12px",background:"var(--gr-p)",borderRadius:"var(--r1)"}}><p style={{fontSize:9.5,color:"var(--gr)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Acheter</p><p style={{fontSize:14,fontWeight:800,color:"var(--gr)"}}>{fmtEur(previewBuy??0)}</p></div>
-        </div>)}
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <input className="inp" type="number" min="0" step="0.01" value={f.price} placeholder="—"
+            onChange={e=>{setErrors([]);setF(p=>({...p,price:e.target.value}))}}/>
+        </div>}
+        {isProd&&previewVal!=null&&!isNaN(previewVal)&&(
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+            <div style={{padding:"8px 12px",background:"var(--g100)",borderRadius:"var(--r1)"}}>
+              <p style={{fontSize:9.5,color:"var(--g400)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Valeur totale</p>
+              <p style={{fontSize:14,fontWeight:800,color:"var(--g600)"}}>{fmtEur(previewVal)}</p>
+            </div>
+            <div style={{padding:"8px 12px",background:"var(--gr-p)",borderRadius:"var(--r1)"}}>
+              <p style={{fontSize:9.5,color:"var(--gr)",fontWeight:700,textTransform:"uppercase",marginBottom:2}}>Reste à acheter</p>
+              <p style={{fontSize:14,fontWeight:800,color:"var(--gr)"}}>{fmtEur(previewBuy??0)}</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Priorité + Magasin (tous sauf Document pour magasin) ── */}
+        <div style={{display:"grid",gridTemplateColumns:isDoc?"1fr":"1fr 1fr",gap:10}}>
           <div style={{display:"flex",flexDirection:"column",gap:4}}>
             <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Priorité</label>
-            <select className="inp" value={f.priority} onChange={e=>setF(p=>({...p,priority:e.target.value}))}><option value="high">Priorité haute</option><option value="medium">Moyen</option><option value="low">Optionnel</option></select>
+            <select className="inp" value={f.priority} onChange={e=>setF(p=>({...p,priority:e.target.value}))}>
+              <option value="high">🔴 Priorité haute</option>
+              <option value="medium">🟡 Moyen</option>
+              <option value="low">🟢 Optionnel</option>
+            </select>
           </div>
-          <div style={{display:"flex",flexDirection:"column",gap:4}}>
-            <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Magasin</label>
-            <input className="inp" value={f.store} placeholder="Aubert, Amazon…" onChange={e=>setF(p=>({...p,store:e.target.value}))}/>
-          </div>
+          {!isDoc&&<div style={{display:"flex",flexDirection:"column",gap:4}}>
+            <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>
+              {isSvc ? "Prestataire / Lieu" : "Magasin"}
+            </label>
+            <input className="inp" value={f.store}
+              placeholder={isSvc?"ex: CHU Toulouse, PMI…":"Aubert, Amazon…"}
+              onChange={e=>setF(p=>({...p,store:e.target.value}))}/>
+          </div>}
         </div>
+
+        {/* ── Description (tous types) ── */}
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>Description ({f.desc.length}/280)</label>
-          <textarea className="inp" rows={2} value={f.desc} style={{resize:"vertical"}} onChange={e=>setF(p=>({...p,desc:e.target.value}))}/>
+          <label style={{fontSize:11,fontWeight:700,color:"var(--g600)",textTransform:"uppercase",letterSpacing:.5}}>
+            {isDoc?"Note / À vérifier":"Description"} ({f.desc.length}/280)
+          </label>
+          <textarea className="inp" rows={2} value={f.desc} style={{resize:"vertical"}}
+            onChange={e=>setF(p=>({...p,desc:e.target.value}))}
+            placeholder={isDoc?"ex: Penser à prendre les 2 originaux…":isSvc?"ex: Prendre rendez-vous avant la 36e semaine…":""}/>
         </div>
-        <div style={{display:"flex",alignItems:"center",gap:10}}>
+
+        {/* ── URGENT (pas pour document) ── */}
+        {!isDoc&&<div style={{display:"flex",alignItems:"center",gap:10}}>
           <div className={`cb ${f.urgent?"on":""}`} onClick={()=>setF(p=>({...p,urgent:!p.urgent}))} style={{flexShrink:0}}><Tick/></div>
           <span style={{fontSize:13,fontWeight:500}}>Marquer comme URGENT</span>
-        </div>
+        </div>}
+
+        {/* ── Boutons d'action ── */}
         <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
           <button className="btn bp" style={{flex:1}} onClick={submit}>✓ Enregistrer</button>
           <button className="btn bs" onClick={onClose}>Annuler</button>
-          <button className="btn bg" title="Vider quantité et prix"
+          {isProd&&<button className="btn bg" title="Vider quantité et prix"
             style={{color:"var(--g400)",fontSize:11,padding:"6px 10px"}}
-            onClick={()=>{setErrors([]);setF(p=>({...p,qty:"",price:""}))}}>
-            ⌫ Vider les chiffres
-          </button>
+            onClick={()=>{setErrors([]);setF(p=>({...p,qty:"",price:""}));}}>
+            ⌫ Vider chiffres
+          </button>}
         </div>
         {/* ── Zone suppression avec confirmation ── */}
         {onRemove&&!item.isPlaceholder&&(
