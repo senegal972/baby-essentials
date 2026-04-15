@@ -890,6 +890,197 @@ function restoreFromJSON(obj) {
   return results;
 }
 
+
+/* ══════════════════════════════════════════════════════════════
+   EXPORT EXCEL — génère un .xlsx multi-onglets via SheetJS
+   Chargement dynamique de SheetJS (CDN, ~1 Mo, une seule fois)
+   ══════════════════════════════════════════════════════════════ */
+let _xlsxLib = null;
+async function loadXLSX() {
+  if (_xlsxLib) return _xlsxLib;
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => { _xlsxLib = window.XLSX; resolve(window.XLSX); };
+    s.onerror = () => reject(new Error('Impossible de charger SheetJS'));
+    document.head.appendChild(s);
+  });
+}
+
+const PRIO_LABELS = { high:'Haute', medium:'Moyen', low:'Optionnel' };
+const TYPE_LABELS = { produit:'Produit', service:'Service', document:'Document' };
+
+function buildArticlesRows(cats, ckKey, cxKey, hiKey, ovKey) {
+  const ck = JSON.parse(localStorage.getItem(ckKey) || '{}');
+  const cx = JSON.parse(localStorage.getItem(cxKey) || '[]');
+  const hi = JSON.parse(localStorage.getItem(hiKey) || '[]');
+  const ov = JSON.parse(localStorage.getItem(ovKey) || '{}');
+  const rows = [];
+
+  cats.forEach(cat => {
+    cat.items.forEach(base => {
+      if (base.isPlaceholder) return;
+      const item = ov[base.id] ? { ...base, ...ov[base.id] } : base;
+      const coche = !!ck[item.id];
+      const masque = hi.includes(item.id);
+      const qte = typeof item.qty === 'number' ? item.qty : null;
+      const stock = typeof item.stock === 'number' ? item.stock : 0;
+      const prix = typeof item.price === 'number' ? item.price : null;
+      const aAcheter = (qte != null && prix != null) ? Math.max(0, qte - stock) * prix : null;
+      rows.push({
+        'Catégorie':       cat.label,
+        'Nom':             item.text,
+        'Type':            TYPE_LABELS[item.type] || 'Produit',
+        'Priorité':        PRIO_LABELS[item.priority] || 'Moyen',
+        'Coché':           coche ? 'Oui' : 'Non',
+        'Masqué':          masque ? 'Oui' : 'Non',
+        'Qté nécessaire':  qte,
+        'Déjà en stock':   stock || null,
+        'Reste à acheter': qte != null ? Math.max(0, qte - stock) : null,
+        'Prix unitaire €': prix,
+        'Valeur totale €': (qte != null && prix != null) ? +(qte * prix).toFixed(2) : null,
+        'Montant à payer €': aAcheter != null ? +aAcheter.toFixed(2) : null,
+        'Magasin':         item.store || '',
+        'Description':     item.desc || '',
+        'Urgent':          item.urgent ? 'Oui' : '',
+      });
+    });
+    // Articles personnalisés de cette catégorie
+    cx.filter(x => x.cid === cat.id).forEach(item => {
+      const coche = !!ck[item.id];
+      const qte = typeof item.qty === 'number' ? item.qty : null;
+      const stock = typeof item.stock === 'number' ? item.stock : 0;
+      const prix = typeof item.price === 'number' ? item.price : null;
+      rows.push({
+        'Catégorie':       cat.label + ' (perso)',
+        'Nom':             item.text,
+        'Type':            TYPE_LABELS[item.type] || 'Produit',
+        'Priorité':        PRIO_LABELS[item.priority] || 'Moyen',
+        'Coché':           coche ? 'Oui' : 'Non',
+        'Masqué':          'Non',
+        'Qté nécessaire':  qte,
+        'Déjà en stock':   stock || null,
+        'Reste à acheter': qte != null ? Math.max(0, qte - stock) : null,
+        'Prix unitaire €': prix,
+        'Valeur totale €': (qte != null && prix != null) ? +(qte * prix).toFixed(2) : null,
+        'Montant à payer €': (qte != null && prix != null) ? +((Math.max(0,qte-stock))*prix).toFixed(2) : null,
+        'Magasin':         item.store || '',
+        'Description':     item.desc || '',
+        'Urgent':          item.urgent ? 'Oui' : '',
+      });
+    });
+  });
+  return rows;
+}
+
+function styleSheet(XLSX, ws, headers) {
+  // Largeurs de colonnes adaptées
+  const colWidths = headers.map(h => {
+    const base = { 'Nom':30, 'Description':40, 'Catégorie':22, 'Magasin':18,
+                   'Coché':8, 'Masqué':8, 'Urgent':8, 'Type':12, 'Priorité':12 };
+    return { wch: base[h] || 14 };
+  });
+  ws['!cols'] = colWidths;
+}
+
+async function exportToXLSX(familyName) {
+  const XLSX = await loadXLSX();
+  const wb = XLSX.utils.book_new();
+  const date = new Date().toLocaleDateString('fr-FR');
+
+  // ── Onglet 1 : Valise Maternité ──
+  const valiseRows = buildArticlesRows(
+    CLINIC_CATS, 'cl6', 'cl6x', 'cl6h', 'tn_ov_v6'
+  );
+  if (valiseRows.length > 0) {
+    const ws1 = XLSX.utils.json_to_sheet(valiseRows);
+    styleSheet(XLSX, ws1, Object.keys(valiseRows[0]));
+    XLSX.utils.book_append_sheet(wb, ws1, '🧳 Valise');
+  }
+
+  // ── Onglet 2 : Essentiels Maison ──
+  const maisonRows = buildArticlesRows(
+    HOME_CATS, 'hm6', 'hm6x', 'hm6h', 'tn_ov_v6'
+  );
+  if (maisonRows.length > 0) {
+    const ws2 = XLSX.utils.json_to_sheet(maisonRows);
+    styleSheet(XLSX, ws2, Object.keys(maisonRows[0]));
+    XLSX.utils.book_append_sheet(wb, ws2, '🏠 Maison');
+  }
+
+  // ── Onglet 3 : Journal Quotidien ──
+  const logs = JSON.parse(localStorage.getItem('tl6') || '[]');
+  const TYPE_J = { feed:'Repas', diaper:'Change', sleep:'Sommeil' };
+  if (logs.length > 0) {
+    const journalRows = logs.map(l => ({
+      'Date':        l.date || '',
+      'Heure':       l.time || '',
+      'Enfant':      l.baby || '',
+      'Type':        TYPE_J[l.type] || l.type || '',
+      'Sous-type':   l.subtype || '',
+      'Durée (min)': l.duration ? parseInt(l.duration) : null,
+      'Notes':       l.notes || '',
+    }));
+    const ws3 = XLSX.utils.json_to_sheet(journalRows);
+    ws3['!cols'] = [{wch:12},{wch:8},{wch:14},{wch:10},{wch:14},{wch:12},{wch:40}];
+    XLSX.utils.book_append_sheet(wb, ws3, '📊 Journal');
+  } else {
+    // Onglet vide avec en-têtes
+    const ws3 = XLSX.utils.aoa_to_sheet([['Date','Heure','Enfant','Type','Sous-type','Durée (min)','Notes']]);
+    ws3['!cols'] = [{wch:12},{wch:8},{wch:14},{wch:10},{wch:14},{wch:12},{wch:40}];
+    XLSX.utils.book_append_sheet(wb, ws3, '📊 Journal');
+  }
+
+  // ── Onglet 4 : CAF & Budget ──
+  const cafRaw = JSON.parse(localStorage.getItem('tn_caf_v6') || '[]');
+  const budget = localStorage.getItem('tn_declared_v6') || '';
+  const cafRows = cafRaw.map(a => ({
+    'Aide':            a.label || a.id || '',
+    'Catégorie':       a.cat || '',
+    'Montant €':       typeof a.amount === 'number' ? a.amount : '',
+    'Statut':          a.statut || 'À faire',
+    'Notes':           a.note || '',
+  }));
+  // Ligne récap budget
+  cafRows.push({ 'Aide': '── Budget déclaré ──', 'Catégorie': '', 'Montant €': budget ? parseFloat(budget) : '', 'Statut': '', 'Notes': '' });
+  const ws4 = XLSX.utils.json_to_sheet(cafRows);
+  ws4['!cols'] = [{wch:36},{wch:14},{wch:12},{wch:12},{wch:50}];
+  XLSX.utils.book_append_sheet(wb, ws4, '💰 CAF & Budget');
+
+  // ── Onglet 5 : Résumé ──
+  const totalValise  = valiseRows.filter(r=>r['Coché']==='Oui').length;
+  const totalV       = valiseRows.length;
+  const totalMaison  = maisonRows.filter(r=>r['Coché']==='Oui').length;
+  const totalM       = maisonRows.length;
+  const budgetVal    = valiseRows.reduce((s,r)=>s+(r['Valeur totale €']||0), 0);
+  const budgetMaison = maisonRows.reduce((s,r)=>s+(r['Valeur totale €']||0), 0);
+  const aPayerVal    = valiseRows.reduce((s,r)=>s+(r['Montant à payer €']||0), 0);
+  const aPayerMaison = maisonRows.reduce((s,r)=>s+(r['Montant à payer €']||0), 0);
+
+  const resumeData = [
+    ['Famille', familyName || '—'],
+    ['Date export', date],
+    [''],
+    ['', 'Articles cochés', 'Total articles', 'Valeur totale €', 'Reste à payer €'],
+    ['🧳 Valise maternité', totalValise, totalV, +budgetVal.toFixed(2), +aPayerVal.toFixed(2)],
+    ['🏠 Essentiels maison', totalMaison, totalM, +budgetMaison.toFixed(2), +aPayerMaison.toFixed(2)],
+    ['📊 Entrées journal', logs.length, logs.length, '', ''],
+    ['💰 Aides CAF', cafRaw.length, cafRaw.length, '', ''],
+    [''],
+    ['Budget déclaré €', budget ? parseFloat(budget) : '—'],
+    ['Total calculé valise + maison €', +(budgetVal + budgetMaison).toFixed(2)],
+  ];
+  const ws5 = XLSX.utils.aoa_to_sheet(resumeData);
+  ws5['!cols'] = [{wch:28},{wch:16},{wch:16},{wch:16},{wch:16}];
+  XLSX.utils.book_append_sheet(wb, ws5, '📋 Résumé');
+
+  // ── Téléchargement ──
+  const dateFile = new Date().toISOString().slice(0,10);
+  const fname = `TwinNest-export-${familyName||'famille'}-${dateFile}.xlsx`;
+  XLSX.writeFile(wb, fname);
+  return { valise: totalV, maison: totalM, journal: logs.length, caf: cafRaw.length };
+}
+
 function dataSizeLabel(key) {
   const v = localStorage.getItem(key);
   if (!v) return null;
@@ -939,6 +1130,20 @@ function DataModal({ auth, onClose }) {
       msg("✅ Fichier téléchargé — conservez-le précieusement !");
     } catch (e) {
       msg("Erreur téléchargement : " + e.message, "warn");
+    }
+  }, [session, msg]);
+
+  /* ── Export Excel .xlsx ── */
+  const [xlsxLoading, setXlsxLoading] = useState(false);
+  const handleExportXLSX = useCallback(async () => {
+    setXlsxLoading(true);
+    try {
+      const stats = await exportToXLSX(session?.familyName);
+      msg(`✅ Excel téléchargé — ${stats.valise} articles valise · ${stats.maison} maison · ${stats.journal} journal · ${stats.caf} CAF`);
+    } catch (e) {
+      msg('Erreur export Excel : ' + e.message, 'warn');
+    } finally {
+      setXlsxLoading(false);
     }
   }, [session, msg]);
 
@@ -1079,12 +1284,34 @@ function DataModal({ auth, onClose }) {
               <p style={{fontSize:10,color:"var(--g400)",marginTop:5}}>Taille estimée : {totalSize} Ko</p>
             </div>
 
-            {/* Télécharger */}
-            <button onClick={handleDownload} style={{display:"flex",alignItems:"center",gap:12,padding:"15px 16px",borderRadius:"var(--r2)",cursor:"pointer",border:"none",background:"var(--aq)",color:"var(--wh)",fontFamily:"var(--ff)",fontWeight:700,fontSize:14,boxShadow:"0 4px 12px rgba(91,190,194,.3)",transition:"all .18s"}}>
-              <span style={{fontSize:26}}>⬇️</span>
+            {/* ── Bouton Excel ── */}
+            <button onClick={handleExportXLSX} disabled={xlsxLoading}
+              style={{display:"flex",alignItems:"center",gap:12,padding:"15px 16px",borderRadius:"var(--r2)",cursor:xlsxLoading?"wait":"pointer",
+                border:"none",background:xlsxLoading?"var(--g400)":"#1D6F42",color:"var(--wh)",
+                fontFamily:"var(--ff)",fontWeight:700,fontSize:14,
+                boxShadow:"0 4px 12px rgba(29,111,66,.3)",transition:"all .18s"}}>
+              <span style={{fontSize:26}}>📊</span>
               <div style={{flex:1,textAlign:"left"}}>
-                <p>Télécharger la sauvegarde (.json)</p>
-                <p style={{fontSize:10.5,opacity:.8,fontWeight:400,marginTop:2}}>Fichier horodaté · Restaurable à tout moment</p>
+                <p>{xlsxLoading ? "Génération du fichier Excel…" : "Exporter en Excel (.xlsx)"}</p>
+                <p style={{fontSize:10.5,opacity:.8,fontWeight:400,marginTop:2}}>
+                  {xlsxLoading ? "Chargement de SheetJS…" : "5 onglets : Valise · Maison · Journal · CAF · Résumé"}
+                </p>
+              </div>
+            </button>
+
+            <div style={{padding:"9px 12px",borderRadius:"var(--r1)",background:"#E8F5EE",border:"1px solid #A8D5B8",fontSize:11,color:"#1D6F42",lineHeight:1.6}}>
+              📌 Ouvre directement dans <b>Excel</b>, <b>Google Sheets</b> ou <b>LibreOffice</b>.
+              Importable dans Notion, Airtable ou toute base de données via "Importer CSV".
+            </div>
+
+            <div style={{height:1,background:"var(--g200)",margin:"2px 0"}}/>
+
+            {/* Télécharger JSON */}
+            <button onClick={handleDownload} style={{display:"flex",alignItems:"center",gap:12,padding:"13px 16px",borderRadius:"var(--r2)",cursor:"pointer",border:"1.5px solid var(--g200)",background:"var(--wh)",fontFamily:"var(--ff)",fontWeight:600,fontSize:13,transition:"all .18s"}}>
+              <span style={{fontSize:22}}>⬇️</span>
+              <div style={{flex:1,textAlign:"left"}}>
+                <p style={{color:"var(--g800)"}}>Sauvegarde technique (.json)</p>
+                <p style={{fontSize:10.5,color:"var(--g400)",marginTop:2}}>Format app — Restaurable dans Baby Essentials</p>
               </div>
             </button>
 
