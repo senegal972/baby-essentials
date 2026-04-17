@@ -1889,7 +1889,7 @@ function EcartCard({declaredBudget,totalToBuy,totalValue,totalCAFAids=0}){
     <p style={{fontSize:11.5,fontWeight:700,color:"var(--g400)",marginBottom:2}}>💡 Saisissez votre budget pour voir l'écart</p>
     <p style={{fontSize:10.5,color:"var(--g400)"}}>Entrez un montant dans le champ ci-dessus.</p>
   </div>);
-  const delta=totalToBuy-declaredBudget,pctUsed=Math.round((totalToBuy/declaredBudget)*100),isOver=delta>0,saving=totalValue-(cl.grandToBuy+home.grandToBuy);
+  const delta=totalToBuy-declaredBudget,pctUsed=Math.round((totalToBuy/declaredBudget)*100),isOver=delta>0,saving=totalValue-totalToBuy;
   return(<div style={{borderRadius:"var(--r2)",padding:"14px 16px",background:isOver?"var(--am-p)":"var(--gr-p)",border:`1.5px solid ${isOver?"rgba(212,154,40,.4)":"rgba(43,138,74,.3)"}`}} aria-live="polite" aria-atomic="true">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
       <div><p style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,color:isOver?"var(--am)":"var(--gr)",marginBottom:2}}>{isOver?"⚠ Dépassement":"✓ Dans le budget"}</p>
