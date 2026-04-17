@@ -3105,7 +3105,7 @@ export default function App(){
   const auth = useAuth();
 
   /* Si pas encore de session → écran d'accueil */
-  if (!auth.session) return (<><G/><WelcomeScreen auth={auth}/></>);
+  if (!auth.session) return (<ErrorBoundary><><G/><WelcomeScreen auth={auth}/></></ErrorBoundary>);
 
   return <MainApp auth={auth}/>;
 }
@@ -3140,7 +3140,8 @@ function MainApp({ auth }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[tab]);
 
-  return(<>
+  return(<ErrorBoundary>
+  <>
     <G/>
     <div className="grain" style={{minHeight:"100vh",maxWidth:480,margin:"0 auto",position:"relative"}}>
 
@@ -3203,5 +3204,6 @@ function MainApp({ auth }) {
       {accountOpen&&<AccountModal auth={auth} onClose={()=>setAccountOpen(false)}/>}
       {dataOpen   &&<DataModal    auth={auth} onClose={()=>setDataOpen(false)}/>}
     </div>
-  </>);
+  </>
+  </ErrorBoundary>);
 }
