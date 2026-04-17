@@ -3002,7 +3002,7 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
   const{nbChildren,children}=family;
   const cl  =useCL("cl6",CLINIC_CATS,nbChildren);
   const home=useCL("hm6",HOME_CATS,nbChildren);
-  const totalToBuy=home.grandToBuy+cl.grandToBuy,totalValue=home.grandTotal+cl.grandTotal;
+  const totalToBuy=home.grandRealToBuy+cl.grandRealToBuy,totalValue=home.grandTotal+cl.grandTotal;
   const urgents=useMemo(()=>[
     ...CLINIC_CATS.flatMap(c=>c.items.filter(i=>i.priority==="high"&&!cl.ck[i.id]&&!i.isPlaceholder&&i.urgent).map(i=>({...i,catId:c.id,catEmoji:c.emoji,tabTarget:"clinic"}))),
     ...HOME_CATS.flatMap(c=>c.items.filter(i=>i.priority==="high"&&!home.ck[i.id]&&!i.isPlaceholder&&i.urgent).map(i=>({...i,catId:c.id,catEmoji:c.emoji,tabTarget:"home"}))),
@@ -3036,8 +3036,8 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
     <div style={{padding:"12px 15px 0"}}>
       <p style={{fontSize:10,fontWeight:800,letterSpacing:1.5,color:"var(--g400)",textTransform:"uppercase",marginBottom:9}}>Avancement</p>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:9}}>
-        {[{l:"Valise maternité",pct:cl.stats.pct,done:cl.stats.done,total:cl.stats.total,color:"#5BBEC2",e:"🧳",tab:"clinic",toBuy:cl.grandToBuy,value:cl.grandTotal},
-          {l:"Essentiels maison",pct:home.stats.pct,done:home.stats.done,total:home.stats.total,color:"#F09E72",e:"🏠",tab:"home",toBuy:home.grandToBuy,value:home.grandTotal}].map(card=>(
+        {[{l:"Valise maternité",pct:cl.stats.pct,done:cl.stats.done,total:cl.stats.total,color:"#5BBEC2",e:"🧳",tab:"clinic",toBuy:cl.grandRealToBuy,value:cl.grandTotal},
+          {l:"Essentiels maison",pct:home.stats.pct,done:home.stats.done,total:home.stats.total,color:"#F09E72",e:"🏠",tab:"home",toBuy:home.grandRealToBuy,value:home.grandTotal}].map(card=>(
           <div key={card.tab} onClick={()=>setTab(card.tab)} style={{background:"var(--wh)",borderRadius:"var(--r2)",padding:"14px",boxShadow:"var(--sh1)",border:"1.5px solid var(--g200)",cursor:"pointer",transition:".16s"}}
             onMouseEnter={e=>{e.currentTarget.style.borderColor=card.color;e.currentTarget.style.transform="translateY(-2px)"}}
             onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--g200)";e.currentTarget.style.transform="translateY(0)"}}>
