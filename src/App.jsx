@@ -108,6 +108,14 @@ const effQty = (item, nb=1) => {
 function calcCatTotal(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); if(q===0)return s; return s+i.price*q; },0)}
 function calcCatToBuy(items,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null)return s; const q=effQty(i,nb); const st=Math.min(typeof i.stock==="number"?i.stock:0,q); return s+i.price*(q-st); },0)}
 function calcCatUnchecked(items,ck,nb=1){return items.reduce((s,i)=>{ if(!i||i.isPlaceholder||i.price==null||ck[i.id])return s; const q=effQty(i,nb); if(q===0)return s; return s+i.price*q; },0)}
+// Vrais achats restants = articles NON cochés, avec stock déduit
+// C'est la seule métrique "Acheter" correcte pour un utilisateur
+function calcCatRealToBuy(items,ck,nb=1){return items.reduce((s,i)=>{
+  if(!i||i.isPlaceholder||i.price==null||ck[i.id])return s; // skip cochés
+  const q=effQty(i,nb); if(q===0)return s;
+  const st=Math.min(typeof i.stock==="number"?i.stock:0,q);
+  return s+i.price*(q-st);
+},0)}
 
 /* ══════════════════════════════════════════════════════════════
    AUTH & CLOUD SYNC
@@ -1407,9 +1415,11 @@ function DataModal({ auth, onClose }) {
 function generateShareText(family, db, cafAids, cl, home, nbChildren) {
   const date = new Date().toLocaleDateString("fr-FR", {day:"2-digit",month:"long",year:"numeric"});
   const childrenLabel = family.children.map(c=>c.prenom||"Bébé").join(" & ") || "Bébé(s)";
-  const totalToBuy = cl.grandToBuy + home.grandToBuy;
+  const totalRealToBuy = cl.grandRealToBuy + home.grandRealToBuy; // articles non cochés × (qty-stock)
+  const totalToBuy = totalRealToBuy; // alias pour le bandeau budget
   const totalValue = cl.grandTotal + home.grandTotal;
-  const delta = db.val ? totalToBuy - db.val : null;
+  const saving = totalValue - (cl.grandToBuy + home.grandToBuy); // éco stock brute
+  const delta = db.val ? totalRealToBuy - db.val : null;
   const bar = "─".repeat(38);
 
   let t = `🍼 BABY ESSENTIALS — ${date}\n${bar}\n\n`;
@@ -1488,7 +1498,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
   const now = new Date();
   const date = now.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
   const childrenLabel = family.children.map(c=>c.prenom||"Bébé").join(" & ")||"Bébé(s)";
-  const totalToBuy = cl.grandToBuy+home.grandToBuy;
+  const totalToBuy = cl.grandRealToBuy+home.grandRealToBuy;
   const totalValue = cl.grandTotal+home.grandTotal;
   const delta = db.val ? totalToBuy-db.val : null;
   const isOver = delta!==null&&delta>0;
@@ -1843,7 +1853,10 @@ function useCL(key,cats,nbChildren=1){
   const catToBuy=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatToBuy(visibleItems(cat.items,cat.id),nbChildren)});return m},[cats,visibleItems,nbChildren]);
   const catUnchecked=useMemo(()=>{const m={};cats.forEach(cat=>{const it=visibleItems(cat.items,cat.id);m[cat.id]=calcCatUnchecked(it,ck,nbChildren)});return m},[cats,visibleItems,ck,nbChildren]);
   const grandUnchecked=useMemo(()=>cats.reduce((s,cat)=>s+calcCatUnchecked(visibleItems(cat.items,cat.id),ck,nbChildren),0),[cats,visibleItems,ck,nbChildren]);
-  return{ck,toggle,cx,addCx,removeCx,removeItem,visibleItems,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy,catUnchecked,grandUnchecked};
+  // Articles réellement à acheter = non cochés + stock déduit (la seule valeur "Acheter" correcte)
+  const grandRealToBuy=useMemo(()=>cats.reduce((s,cat)=>s+calcCatRealToBuy(visibleItems(cat.items,cat.id),ck,nbChildren),0),[cats,visibleItems,ck,nbChildren]);
+  const catRealToBuy=useMemo(()=>{const m={};cats.forEach(cat=>{m[cat.id]=calcCatRealToBuy(visibleItems(cat.items,cat.id),ck,nbChildren)});return m},[cats,visibleItems,ck,nbChildren]);
+  return{ck,toggle,cx,addCx,removeCx,removeItem,visibleItems,editItem,res,stats,grandTotal,grandToBuy,catTotals,catToBuy,catUnchecked,grandUnchecked,grandRealToBuy,catRealToBuy};
 }
 
 /* ══════ ATOMS ══════ */
@@ -1876,7 +1889,7 @@ function EcartCard({declaredBudget,totalToBuy,totalValue,totalCAFAids=0}){
     <p style={{fontSize:11.5,fontWeight:700,color:"var(--g400)",marginBottom:2}}>💡 Saisissez votre budget pour voir l'écart</p>
     <p style={{fontSize:10.5,color:"var(--g400)"}}>Entrez un montant dans le champ ci-dessus.</p>
   </div>);
-  const delta=totalToBuy-declaredBudget,pctUsed=Math.round((totalToBuy/declaredBudget)*100),isOver=delta>0,saving=totalValue-totalToBuy;
+  const delta=totalToBuy-declaredBudget,pctUsed=Math.round((totalToBuy/declaredBudget)*100),isOver=delta>0,saving=totalValue-(cl.grandToBuy+home.grandToBuy);
   return(<div style={{borderRadius:"var(--r2)",padding:"14px 16px",background:isOver?"var(--am-p)":"var(--gr-p)",border:`1.5px solid ${isOver?"rgba(212,154,40,.4)":"rgba(43,138,74,.3)"}`}} aria-live="polite" aria-atomic="true">
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
       <div><p style={{fontSize:10,fontWeight:800,textTransform:"uppercase",letterSpacing:.8,color:isOver?"var(--am)":"var(--gr)",marginBottom:2}}>{isOver?"⚠ Dépassement":"✓ Dans le budget"}</p>
@@ -2598,7 +2611,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <span style={{fontSize:9,color:"var(--aq)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Acheter</span>
-            <span style={{fontSize:15,fontWeight:800,color:"var(--aq)"}}>{fmtEur(cl.grandToBuy)}</span>
+            <span style={{fontSize:15,fontWeight:800,color:"var(--aq)"}}>{fmtEur(cl.grandRealToBuy)}</span>
           </div>
           {cl.grandToBuy<cl.grandTotal&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <span style={{fontSize:9,color:"var(--gr)",fontWeight:700,whiteSpace:"nowrap"}}>📦 En stock</span>
@@ -2620,7 +2633,7 @@ function ClinicPage({db,family,autoOpenCat,clearAutoOpen}){
       {CLINIC_CATS.map((cat,ci)=>{
         const allItems=cl.visibleItems(cat.items,cat.id);
         const done=allItems.filter(i=>cl.ck[i.id]).length,pct=allItems.length?Math.round((done/allItems.length)*100):0;
-        const catTotal=cl.catTotals[cat.id]??0,catBuy=cl.catToBuy[cat.id]??0,isO=open===cat.id;
+        const catTotal=cl.catTotals[cat.id]??0,catBuy=cl.catRealToBuy[cat.id]??0,isO=open===cat.id;
         return(<div key={cat.id} id={`cat-${cat.id}`} style={{marginBottom:9,borderRadius:"var(--r2)",overflow:"hidden",border:"1.5px solid var(--g200)",background:"var(--wh)",boxShadow:"var(--sh1)",animation:`fU .36s ${ci*.05}s both`}}>
           <div style={{padding:"12px 14px",display:"flex",alignItems:"center",gap:10,cursor:"pointer",background:isO?`${cat.color}10`:"var(--wh)"}} onClick={()=>setOpen(isO?null:cat.id)}>
             <span style={{fontSize:18}}>{cat.emoji}</span>
@@ -2692,7 +2705,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
           </div>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <span style={{fontSize:9,color:"var(--pe)",fontWeight:700,textTransform:"uppercase",whiteSpace:"nowrap"}}>Acheter</span>
-            <span style={{fontSize:15,fontWeight:800,color:"var(--pe)"}}>{fmtEur(home.grandToBuy)}</span>
+            <span style={{fontSize:15,fontWeight:800,color:"var(--pe)"}}>{fmtEur(home.grandRealToBuy)}</span>
           </div>
           {stockSaving>0&&<div style={{display:"flex",justifyContent:"space-between",alignItems:"center",gap:8}}>
             <span style={{fontSize:9,color:"var(--gr)",fontWeight:700,whiteSpace:"nowrap"}}>📦 En stock</span>
@@ -2716,7 +2729,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
     </div>
     <div style={{padding:"11px 15px 0"}}>
       {HOME_CATS.map((cat,ci)=>{
-        let items=[...cat.items,...home.cx.filter(x=>x.cid===cat.id)];
+        let items=home.visibleItems(cat.items,cat.id); // ← utilise visibleItems pour filtrer les articles masqués/supprimés
         if(filter==="high") items=items.filter(i=>i.priority==="high");
         if(filter==="pending") items=items.filter(i=>!home.ck[i.id]&&!i.isPlaceholder);
         if(filter==="price") items=items.filter(i=>i.price!=null);
@@ -2725,7 +2738,7 @@ function HomePage({db,family,autoOpenCat,clearAutoOpen}){
         if(items.length===0)return null;
         const real=items.filter(i=>!i.isPlaceholder),done=real.filter(i=>home.ck[i.id]).length;
         const pct=real.length?Math.round((done/real.length)*100):0;
-        const catTotal=home.catTotals[cat.id]??0,catBuy=home.catToBuy[cat.id]??0;
+        const catTotal=home.catTotals[cat.id]??0,catBuy=home.catRealToBuy[cat.id]??0;
         const sharePct=home.grandTotal>0?Math.round((catTotal/home.grandTotal)*100):0;
         const budgetPct=db.val&&db.val>0?Math.round((catBuy/db.val)*100):null;
         const isO=open===cat.id;
