@@ -323,6 +323,7 @@ function useAuth() {
   const [loading,    setLoading]    = useState(false);
   const [syncStatus, setSyncStatus] = useState('idle'); // idle|syncing|synced|error
   const [syncMsg,    setSyncMsg]    = useState('');
+  const [initialPullDone, setInitialPullDone] = useState(false);
 
   const saveSession = useCallback(sess => {
     setSession(sess);
@@ -408,6 +409,36 @@ function useAuth() {
     }
   }, []);
 
+  /* ── Au montage : si session compte existante → pull Notion d'abord ── */
+  useEffect(() => {
+    if (initialPullDone) return;
+    if (session?.mode !== 'account') { setInitialPullDone(true); return; }
+    setInitialPullDone(true);
+    // Charger depuis Notion au démarrage (garantit données fraîches après cache vidé)
+    (async () => {
+      setSyncStatus('syncing');
+      setSyncMsg('Chargement des données…');
+      try {
+        const meta = await loadFromNotion(session.code);
+        if (meta.found) {
+          const updatedSess = s => s ? { ...s, ...meta } : s;
+          setSession(updatedSess);
+          const stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+          if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
+          setSyncStatus('synced');
+          setSyncMsg('Données à jour');
+          setTimeout(() => setSyncStatus('idle'), 2500);
+        } else {
+          setSyncStatus('idle');
+          setSyncMsg('');
+        }
+      } catch {
+        setSyncStatus('idle'); // Pas de réseau → utiliser le cache local
+        setSyncMsg('');
+      }
+    })();
+  }, []); // eslint-disable-line — ne se déclenche qu'une seule fois au montage
+
   /* ── Auto-sync toutes les 60s ── */
   useEffect(() => {
     if (session?.mode !== 'account') return;
@@ -458,6 +489,34 @@ function useAuth() {
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
   }, [session, syncToNotion, loadFromNotion]);
+
+  /* ── Sync avant fermeture du navigateur / onglet ── */
+  useEffect(() => {
+    if (session?.mode !== 'account') return;
+    const onBeforeUnload = () => {
+      // Utiliser sendBeacon pour garantir l'envoi même en cours de fermeture
+      const data = {};
+      for (const key of SYNC_KEYS) {
+        const val = localStorage.getItem(key);
+        if (val) data[key] = val;
+      }
+      const payload = JSON.stringify({
+        code:        session.code,
+        familyName:  session.familyName,
+        pageId:      session.pageId,
+        syncVersion: session.syncVersion,
+        data,
+      });
+      // sendBeacon : fonctionne même quand la page se ferme
+      navigator.sendBeacon('/api/family/save', new Blob([payload], { type: 'application/json' }));
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    window.addEventListener('pagehide', onBeforeUnload); // iOS Safari
+    return () => {
+      window.removeEventListener('beforeunload', onBeforeUnload);
+      window.removeEventListener('pagehide', onBeforeUnload);
+    };
+  }, [session]);
 
   const loginGuest = useCallback(() => saveSession({ mode: 'guest' }), [saveSession]);
 
@@ -3185,6 +3244,15 @@ export default function App(){
   if (!auth.session) return (<><G/><WelcomeScreen auth={auth}/></>);
 
   return <MainApp auth={auth}/>;
+}
+
+/* ── Détection nouvelle version SW — force rechargement si nouveau déploiement ── */
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    // Le SW a changé (nouveau déploiement) → recharger la page silencieusement
+    console.log('[TwinNest] Nouvelle version détectée — rechargement');
+    window.location.reload();
+  });
 }
 
 /* ── Application principale (rendue seulement si session active) ── */
