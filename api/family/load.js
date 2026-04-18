@@ -32,6 +32,8 @@ export default async function handler(req, res) {
   if (!code || code.length < 4) return res.status(400).json({ error: 'Code famille invalide' });
 
   try {
+    const versionOnly = req.query.versionOnly === '1';
+
     const r = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
       method: 'POST',
       headers: {
@@ -56,22 +58,32 @@ export default async function handler(req, res) {
 
     const page  = notionData.results[0];
     const props = page.properties;
+    const syncVersion  = props['Sync Version']?.number   ?? 0;
+    const syncAt       = readRichText(props['Sync At'])   ?? null;
+    const syncAppareil = readRichText(props['Sync Appareil']) ?? null;
+    const nomFamille   = readRichText(props['Nom Famille'])   ?? null;
+
+    // Mode versionOnly : retourner seulement les métadonnées (léger, pour le focus check)
+    if (versionOnly) {
+      return res.json({ found: true, pageId: page.id, syncVersion, syncAt, syncAppareil, nomFamille });
+    }
 
     // Lire chaque groupe séparément
     const data = {};
     for (const [notionField, localKey] of Object.entries(FIELD_MAP)) {
       const val = readRichText(props[notionField]);
-      if (val) data[localKey] = val;
+      // Retourner null explicitement si vide (permet au client d'effacer le local)
+      data[localKey] = val ?? null;
     }
 
     return res.json({
       found:         true,
       pageId:        page.id,
       data,
-      syncVersion:   props['Sync Version']?.number   ?? 0,
-      syncAt:        readRichText(props['Sync At'])   ?? null,
-      syncAppareil:  readRichText(props['Sync Appareil']) ?? null,
-      nomFamille:    readRichText(props['Nom Famille'])   ?? null,
+      syncVersion,
+      syncAt,
+      syncAppareil,
+      nomFamille,
     });
 
   } catch (e) {

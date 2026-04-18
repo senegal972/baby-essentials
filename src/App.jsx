@@ -331,24 +331,32 @@ function useAuth() {
   }, []);
 
   /* ── Charger Notion → localStorage (à la connexion) ── */
+  /* ── Charger Notion → localStorage (écrase toujours le local) ── */
   const loadFromNotion = useCallback(async code => {
     try {
       const r = await fetch(`/api/family/load?code=${encodeURIComponent(code)}`);
-      if (!r.ok) return {};
+      if (!r.ok) return { found: false };
       const json = await r.json();
-      if (!json.found) return {};
-      // Rehydrater chaque clé dans localStorage
+      if (!json.found) return { found: false };
+      // Écraser TOUTES les clés locales avec les données Notion
+      // (y compris les clés vides — "pas de données" est une donnée valide)
       const data = json.data || {};
       for (const key of SYNC_KEYS) {
-        if (data[key]) localStorage.setItem(key, data[key]);
+        if (data[key] != null) {
+          localStorage.setItem(key, data[key]);
+        } else {
+          // Clé absente dans Notion → effacer le local pour éviter divergence
+          localStorage.removeItem(key);
+        }
       }
       return {
+        found:        true,
         pageId:       json.pageId       ?? null,
         syncVersion:  json.syncVersion  ?? 0,
         syncAt:       json.syncAt       ?? null,
         syncAppareil: json.syncAppareil ?? null,
       };
-    } catch { return {}; }
+    } catch { return { found: false }; }
   }, []);
 
   /* ── Envoyer localStorage → Notion ── */
@@ -410,13 +418,46 @@ function useAuth() {
     return () => clearInterval(t);
   }, [session, syncToNotion]);
 
-  /* ── Sync à la reprise de focus (changement d'onglet / retour sur l'app) ── */
+  /* ── Au focus : PULL depuis Notion si cloud plus récent, sinon PUSH ── */
   useEffect(() => {
     if (session?.mode !== 'account') return;
-    const onFocus = () => syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
+    const onFocus = async () => {
+      try {
+        // 1. Interroger Notion pour connaître la version cloud actuelle
+        const r = await fetch(`/api/family/load?code=${encodeURIComponent(session.code)}&versionOnly=1`);
+        if (!r.ok) {
+          // Réseau indisponible → push local silencieux
+          syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
+          return;
+        }
+        const json = await r.json();
+        const cloudVersion = json.syncVersion ?? 0;
+        const localVersion = session.syncVersion ?? 0;
+
+        if (cloudVersion > localVersion) {
+          // Cloud plus récent → PULL : écraser le local avec Notion
+          const meta = await loadFromNotion(session.code);
+          if (meta.found) {
+            const updatedSess = s => s ? { ...s, ...meta } : s;
+            setSession(updatedSess);
+            const stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+            if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
+            setSyncStatus('synced');
+            setSyncMsg(`↓ Rechargé depuis ${meta.syncAppareil || 'cloud'} (v${cloudVersion})`);
+            setTimeout(() => setSyncStatus('idle'), 5000);
+          }
+        } else {
+          // Local à jour ou plus récent → PUSH silencieux
+          syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
+        }
+      } catch {
+        // Erreur réseau → push silencieux
+        syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
+      }
+    };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);
-  }, [session, syncToNotion]);
+  }, [session, syncToNotion, loadFromNotion]);
 
   const loginGuest = useCallback(() => saveSession({ mode: 'guest' }), [saveSession]);
 
@@ -498,9 +539,38 @@ function useAuth() {
     if (session?.mode === 'account') runHealthCheck();
   }, [session?.mode]); // eslint-disable-line
 
-  return { session, loading, syncStatus, syncMsg,
+  /* ── Forcer rechargement depuis Notion (résolution conflits) ── */
+  const [reloading, setReloading] = useState(false);
+  const forceReloadFromCloud = useCallback(async () => {
+    if (!session?.code) return;
+    setReloading(true);
+    setSyncStatus('syncing');
+    setSyncMsg('Rechargement depuis Notion…');
+    try {
+      const meta = await loadFromNotion(session.code);
+      if (meta.found) {
+        const updatedSess = s => s ? { ...s, ...meta } : s;
+        setSession(updatedSess);
+        const stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+        if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
+        setSyncStatus('synced');
+        setSyncMsg(`✓ Rechargé depuis le cloud (v${meta.syncVersion} · ${meta.syncAppareil || '?'})`);
+        setTimeout(() => { setSyncStatus('idle'); window.location.reload(); }, 1500);
+      } else {
+        setSyncStatus('error');
+        setSyncMsg('Aucune donnée trouvée dans le cloud');
+      }
+    } catch {
+      setSyncStatus('error');
+      setSyncMsg('Erreur réseau');
+    } finally {
+      setReloading(false);
+    }
+  }, [session, loadFromNotion]);
+
+  return { session, loading, syncStatus, syncMsg, reloading,
            healthStatus, healthDetail, runHealthCheck,
-           loginGuest, loginAccount, logout, manualSync };
+           loginGuest, loginAccount, logout, manualSync, forceReloadFromCloud };
 }
 
 /* ══════ WELCOME SCREEN ══════ */
@@ -734,7 +804,7 @@ function WelcomeScreen({ auth }) {
 
 /* ══════ ACCOUNT MODAL (gestion depuis l'app) ══════ */
 function AccountModal({ auth, onClose }) {
-  const { session, syncStatus, syncMsg, manualSync, logout, healthStatus, healthDetail, runHealthCheck } = auth;
+  const { session, syncStatus, syncMsg, manualSync, logout, healthStatus, healthDetail, runHealthCheck, forceReloadFromCloud, reloading } = auth;
   const isGuest   = session?.mode === 'guest';
   const isAccount = session?.mode === 'account';
 
@@ -792,6 +862,9 @@ function AccountModal({ auth, onClose }) {
                 </div>
                 {/* ── Health check Notion ── */}
                 <div style={{marginTop:6,display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                  {session?.syncVersion>0&&<div style={{fontSize:10,color:"var(--g400)",marginBottom:4}}>
+                    Cloud : v{session.syncVersion} · {session.syncAppareil||"?"} · {session.syncAt?new Date(session.syncAt).toLocaleString("fr-FR",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}):"—"}
+                  </div>}
                   <div style={{width:7,height:7,borderRadius:"50%",flexShrink:0,
                     background:healthStatus==="ok"?"var(--gr)":healthStatus==="error"?"var(--rd)":healthStatus==="checking"?"var(--am)":"var(--g300)"}}/>
                   <span style={{fontSize:10.5,color:"var(--g600)"}}>
@@ -833,6 +906,10 @@ function AccountModal({ auth, onClose }) {
           <div style={{display:"flex",gap:8,marginBottom:8}}>
             <button className="btn bp" style={{flex:1}} onClick={manualSync} disabled={syncStatus==="syncing"}>
               {syncStatus==="syncing"?"⏳ Sync…":"🔄 Synchroniser maintenant"}
+            </button>
+            <button className="btn bs" style={{flex:1}} onClick={forceReloadFromCloud} disabled={reloading||syncStatus==="syncing"}
+              title="Écraser les données locales avec la version Notion (résout les conflits entre appareils)">
+              {reloading?"⏳ Chargement…":"☁ Recharger depuis cloud"}
             </button>
           </div>
         </>)}
