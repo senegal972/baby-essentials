@@ -1790,7 +1790,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
     <thead><tr><th class="tc">✓</th><th>Article</th><th class="tc">Priorité</th><th class="tc num">Qté</th><th class="tc num">Valeur</th></tr></thead>
     <tbody>${clinicHTML}</tbody>
   </table>
-  ${cl.grandToBuy>0?`<div class="section-total">Total Valise à acheter : ${fmtEur(cl.grandToBuy)}</div>`:""}
+  ${cl.grandRealToBuy>0?`<div class="section-total">Total Valise à acheter : ${fmtEur(cl.grandRealToBuy)}</div>`:""}
 
   <!-- MAISON -->
   <h2>🏠 Essentiels Maison — ${home.stats.done}/${home.stats.total} articles (${home.stats.pct}%)</h2>
@@ -1798,7 +1798,7 @@ function generatePrintHTML(family, db, cafAids, cl, home, nbChildren) {
     <thead><tr><th class="tc">✓</th><th>Article</th><th class="tc">Priorité</th><th class="tc num">Qté</th><th class="tc num">Acheter</th></tr></thead>
     <tbody>${homeHTML}</tbody>
   </table>
-  ${home.grandToBuy>0?`<div class="section-total">Total Maison à acheter : ${fmtEur(home.grandToBuy)}</div>`:""}
+  ${home.grandRealToBuy>0?`<div class="section-total">Total Maison à acheter : ${fmtEur(home.grandRealToBuy)}</div>`:""}
 
   <div class="footer">
     Baby Essentials · Rapport généré le ${date} · ${nbChildren} enfant${nbChildren>1?"s":""}
