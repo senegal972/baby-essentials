@@ -457,7 +457,10 @@ function useAuth() {
         if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
         setSyncStatus('synced');
         const app = json.syncAppareil ? ` (${json.syncAppareil})` : '';
-        setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}${app}`);
+        const protectMsg = (json.protectedCount > 0)
+          ? ` · 🛡️ ${json.protectedCount} colonne(s) préservée(s) côté serveur`
+          : '';
+        setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}${app}${protectMsg}`);
         setTimeout(() => setSyncStatus('idle'), 4000);
         // Empreinte du local au moment du push réussi → utilisée par la garde anti-écrasement au focus
         try { localStorage.setItem('tn_lastpush_fp', JSON.stringify(snapshotSizes().sizes)); } catch {}
@@ -472,6 +475,8 @@ function useAuth() {
           keys_sent:      Object.keys(sent).length,
           sent_sizes:     sent,
           total_sent:     Object.values(sent).reduce((a,b)=>a+b,0),
+          server_protected_count: json.protectedCount || 0,
+          server_protected:       json.protected || [],
           before,
         });
         // Publication asynchrone dans les bases de visualisation Notion (fire & forget)
@@ -756,7 +761,26 @@ function useAuth() {
     }
   }, [session, loadFromNotion]);
 
-  return { session, loading, syncStatus, syncMsg, reloading,
+  /* ── Tick une fois par minute pour que l'âge de la dernière sauvegarde se rafraîchisse ── */
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (session?.mode !== 'account') return;
+    const i = setInterval(() => setTick(t => t + 1), 30_000);
+    return () => clearInterval(i);
+  }, [session?.mode]);
+
+  const lastSaveAge = useMemo(() => {
+    if (session?.mode !== 'account' || !session.syncAt) return null;
+    const ageMs = Date.now() - new Date(session.syncAt).getTime();
+    if (isNaN(ageMs) || ageMs < 0) return null;
+    if (ageMs < 60_000)        return { label: 'à l\'instant', stale: false };
+    if (ageMs < 3_600_000)     return { label: `il y a ${Math.floor(ageMs/60_000)} min`, stale: false };
+    if (ageMs < 86_400_000)    return { label: `il y a ${Math.floor(ageMs/3_600_000)} h`,  stale: ageMs > 21_600_000 };
+    return { label: `il y a ${Math.floor(ageMs/86_400_000)} j`, stale: true };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, tick]);
+
+  return { session, loading, syncStatus, syncMsg, reloading, lastSaveAge,
            healthStatus, healthDetail, runHealthCheck,
            loginGuest, loginAccount, logout, manualSync, forceReloadFromCloud };
 }
@@ -1476,6 +1500,18 @@ function DataModal({ auth, onClose }) {
           </div>
           <button className="btn bg" onClick={onClose} style={{fontSize:21,padding:"0 4px"}}>×</button>
         </div>
+
+        {/* Bouton Diagnostic — accès direct au panneau caché de logs/santé */}
+        <button onClick={()=>{ onClose(); setTimeout(()=>{ if(window._openDiagnostic) window._openDiagnostic(); },150); }}
+          style={{width:"100%",padding:"10px 12px",borderRadius:"var(--r1)",border:"1.5px solid var(--aq-l)",background:"var(--aq-p)",cursor:"pointer",
+            display:"flex",alignItems:"center",gap:10,marginBottom:14,textAlign:"left"}}>
+          <span style={{fontSize:18}}>🛠️</span>
+          <span style={{flex:1}}>
+            <div style={{fontSize:12.5,fontWeight:700,color:"#186068"}}>Diagnostic des sauvegardes</div>
+            <div style={{fontSize:10.5,color:"var(--g600)"}}>Voir le journal complet des syncs · État Notion · Forcer un envoi</div>
+          </span>
+          <span style={{fontSize:14,color:"var(--aq)"}}>→</span>
+        </button>
 
         {/* Tabs */}
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:3,padding:3,background:"var(--g100)",borderRadius:"var(--r1)",marginBottom:14}}>
@@ -3722,7 +3758,7 @@ if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
 
 /* ── Application principale (rendue seulement si session active) ── */
 function MainApp({ auth }) {
-  const { session, syncStatus, syncMsg, manualSync } = auth;
+  const { session, syncStatus, syncMsg, manualSync, lastSaveAge } = auth;
   const isGuest   = session?.mode === 'guest';
   const isAccount = session?.mode === 'account';
 
@@ -3779,6 +3815,18 @@ function MainApp({ auth }) {
         </div>
       )}
 
+      {/* ── Bannière persistante d'erreur de sync ── */}
+      {isAccount && syncStatus === 'error' && (
+        <div style={{background:"var(--rd-p)",borderBottom:"1px solid rgba(212,82,82,.3)",padding:"6px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+          <p style={{fontSize:10.5,color:"var(--rd)",fontWeight:700}}>
+            ⚠️ Problème de sauvegarde Notion : {syncMsg || 'erreur inconnue'} · données conservées en local
+          </p>
+          <button onClick={()=>setDiagOpen(true)} style={{fontSize:10,padding:"2px 8px",borderRadius:99,background:"var(--rd)",color:"var(--wh)",border:"none",cursor:"pointer",fontWeight:700,whiteSpace:"nowrap"}}>
+            Diagnostic →
+          </button>
+        </div>
+      )}
+
       {/* ── Top bar ── */}
       <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(253,250,247,.92)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,.6)",padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
         <div onClick={onLogoTap} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}} title="Baby Essentials">
@@ -3786,6 +3834,15 @@ function MainApp({ auth }) {
           <span style={{fontFamily:"var(--fs)",fontSize:15}}>Baby Essentials</span>
         </div>
         <div style={{display:"flex",gap:5,alignItems:"center"}}>
+          {isAccount && lastSaveAge && (
+            <button onClick={()=>setDiagOpen(true)}
+              title={`Dernière sauvegarde Notion : ${session.syncAt ? new Date(session.syncAt).toLocaleString('fr-FR') : '—'} (cliquer pour voir le diagnostic)`}
+              style={{fontSize:9.5,padding:"2px 7px",borderRadius:99,fontWeight:700,border:"none",cursor:"pointer",
+                background: lastSaveAge.stale ? "var(--am-p)" : "var(--sa-p)",
+                color:      lastSaveAge.stale ? "var(--am)"   : "var(--gr)"}}>
+              {lastSaveAge.stale ? "⚠️" : "💾"} {lastSaveAge.label}
+            </button>
+          )}
           {/* Indicateur compte / sync */}
           <button onClick={()=>setAccountOpen(true)} style={{fontSize:10,padding:"2px 8px",borderRadius:99,fontWeight:800,border:"none",cursor:"pointer",display:"flex",alignItems:"center",gap:4,
             background: isAccount?"var(--gr-p)":"var(--am-p)",

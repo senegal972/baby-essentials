@@ -58,17 +58,18 @@ export default async function handler(req, res) {
     'Sync At':      { rich_text: toRichText(syncAt) },
   };
 
-  // Remplir chaque colonne séparément depuis data
-  for (const [localKey, notionField] of Object.entries(FIELD_MAP)) {
-    const val = data?.[localKey];
-    properties[notionField] = { rich_text: toRichText(val || '') };
-  }
+  // ⚠️ PROTECTION SERVEUR : ne jamais écraser une colonne existante non-vide
+  // avec du vide. Si le client envoie un payload partiel (clé manquante ou
+  // chaîne vide), on conserve la valeur déjà stockée dans Notion.
+  // Cela évite la perte de données même si le client a un bug temporaire.
+
+  // Pour appliquer cette règle, on doit d'abord lire l'état actuel de la page
+  // si elle existe. La logique de recherche/upsert est plus bas, on la prépare ici.
+  let existingPageId = req.body.pageId || null;
+  let existingProps  = null;
 
   try {
-    // Chercher d'abord si la famille existe déjà (évite les doublons de race condition)
-    let pageId = req.body.pageId || null;
-
-    if (!pageId) {
+    if (!existingPageId) {
       const searchR = await fetch(`https://api.notion.com/v1/databases/${DATABASE_ID}/query`, {
         method: 'POST',
         headers: {
@@ -83,9 +84,60 @@ export default async function handler(req, res) {
       });
       const searchData = await searchR.json();
       if (searchData.results?.length > 0) {
-        pageId = searchData.results[0].id;
+        existingPageId = searchData.results[0].id;
+        existingProps  = searchData.results[0].properties;
+      }
+    } else {
+      // pageId connu → récupérer les props pour vérifier
+      const fetchR = await fetch(`https://api.notion.com/v1/pages/${existingPageId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${NOTION_TOKEN}`,
+          'Notion-Version': '2022-06-28',
+        },
+      });
+      if (fetchR.ok) {
+        const pageData = await fetchR.json();
+        existingProps  = pageData.properties;
       }
     }
+  } catch (e) {
+    // Best-effort : si le pré-fetch échoue, on continue mais sans la protection
+    // (le client garde le filet local de toute façon)
+    existingProps = null;
+  }
+
+  // Helper : renvoie true si la colonne Notion existante a du contenu utile
+  function existingNonEmpty(notionField) {
+    if (!existingProps) return false;
+    const prop = existingProps[notionField];
+    if (!prop?.rich_text) return false;
+    const text = prop.rich_text.map(t => t.plain_text || '').join('');
+    return text.length > 0;
+  }
+
+  // Remplir chaque colonne séparément depuis data, avec protection
+  const skippedColumns = [];
+  for (const [localKey, notionField] of Object.entries(FIELD_MAP)) {
+    const incoming = data?.[localKey];
+    const incomingHasContent = incoming != null && String(incoming).length > 0;
+
+    if (incomingHasContent) {
+      // Cas normal : on a du contenu → on écrit
+      properties[notionField] = { rich_text: toRichText(String(incoming)) };
+    } else if (existingNonEmpty(notionField)) {
+      // ⚠️ PROTECTION : Notion a du contenu mais le client n'en envoie pas
+      //               → ne pas inclure cette propriété dans le PATCH
+      //               → la valeur Notion existante est préservée
+      skippedColumns.push({ field: notionField, key: localKey, reason: 'client_empty_cloud_has_data' });
+    } else {
+      // Les deux sont vides → écrire vide est sans risque
+      properties[notionField] = { rich_text: toRichText('') };
+    }
+  }
+
+  try {
+    let pageId = existingPageId;
 
     let r;
     if (pageId) {
@@ -124,6 +176,8 @@ export default async function handler(req, res) {
       syncVersion: newVersion,
       syncAt,
       syncAppareil: appareil,
+      protected: skippedColumns,         // colonnes préservées par la protection serveur
+      protectedCount: skippedColumns.length,
     });
 
   } catch (e) {
