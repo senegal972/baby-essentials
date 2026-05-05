@@ -139,6 +139,42 @@ function cloudKey(code, key) {
   return `be_${code}_${key}`;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   SYNC LOG — Journal persistant des opérations de synchronisation
+   Stocké dans localStorage, jamais synchronisé vers Notion (privé local).
+   Visible via menu caché : 5 taps rapides sur le logo "Baby Essentials".
+   ══════════════════════════════════════════════════════════════ */
+const SYNCLOG_KEY = 'tn_synclog_v1';
+const SYNCLOG_MAX = 300;
+
+function snapshotSizes() {
+  const sizes = {};
+  let total = 0;
+  for (const k of SYNC_KEYS) {
+    const v = localStorage.getItem(k);
+    const n = v ? v.length : 0;
+    sizes[k] = n;
+    total += n;
+  }
+  return { sizes, total };
+}
+
+function logSync(entry) {
+  try {
+    const log = JSON.parse(localStorage.getItem(SYNCLOG_KEY) || '[]');
+    const stamped = { ts: new Date().toISOString(), ...entry };
+    log.unshift(stamped);
+    localStorage.setItem(SYNCLOG_KEY, JSON.stringify(log.slice(0, SYNCLOG_MAX)));
+  } catch {}
+}
+
+function readSyncLog() {
+  try { return JSON.parse(localStorage.getItem(SYNCLOG_KEY) || '[]'); } catch { return []; }
+}
+
+function clearSyncLog() {
+  try { localStorage.removeItem(SYNCLOG_KEY); } catch {}
+}
 
 /* ── Construire le payload structuré pour la publication Notion ── */
 function buildPublishPayload() {
@@ -331,25 +367,51 @@ function useAuth() {
     else      localStorage.removeItem(SESSION_KEY);
   }, []);
 
-  /* ── Charger Notion → localStorage (à la connexion) ── */
-  /* ── Charger Notion → localStorage (écrase toujours le local) ── */
+  /* ── Charger Notion → localStorage ──
+     ⚠️ CORRECTION CRITIQUE (perte de données) :
+     L'ancienne version effaçait les clés locales si Notion renvoyait null
+     pour cette clé. Cause de perte de données quand une sauvegarde antérieure
+     était partielle ou tronquée. Nouvelle règle : on n'écrase que si Notion
+     a une valeur non-vide. Les clés vides côté cloud ne touchent JAMAIS le local. */
   const loadFromNotion = useCallback(async code => {
+    const before = snapshotSizes();
     try {
       const r = await fetch(`/api/family/load?code=${encodeURIComponent(code)}`);
-      if (!r.ok) return { found: false };
+      if (!r.ok) {
+        logSync({ op:'pull', ok:false, code, error:`HTTP ${r.status}`, before });
+        return { found: false };
+      }
       const json = await r.json();
-      if (!json.found) return { found: false };
-      // Écraser TOUTES les clés locales avec les données Notion
-      // (y compris les clés vides — "pas de données" est une donnée valide)
+      if (!json.found) {
+        logSync({ op:'pull', ok:true, code, result:'famille_introuvable', before });
+        return { found: false };
+      }
       const data = json.data || {};
+      const writes = []; const skips = [];
       for (const key of SYNC_KEYS) {
-        if (data[key] != null) {
-          localStorage.setItem(key, data[key]);
+        const val = data[key];
+        if (val != null && String(val).length > 0) {
+          // Valeur cloud présente → écraser le local
+          localStorage.setItem(key, val);
+          writes.push({ key, size: String(val).length });
         } else {
-          // Clé absente dans Notion → effacer le local pour éviter divergence
-          localStorage.removeItem(key);
+          // Cloud vide/absent → CONSERVER le local (correction du bug destructeur)
+          const localSize = (localStorage.getItem(key) || '').length;
+          skips.push({ key, kept_local_size: localSize });
         }
       }
+      const after = snapshotSizes();
+      logSync({
+        op:'pull', ok:true, code,
+        cloud_version: json.syncVersion ?? 0,
+        cloud_device:  json.syncAppareil ?? null,
+        cloud_at:      json.syncAt ?? null,
+        page_id:       json.pageId ?? null,
+        writes_count:  writes.length,
+        skips_count:   skips.length,
+        writes, skips,
+        before, after,
+      });
       return {
         found:        true,
         pageId:       json.pageId       ?? null,
@@ -357,18 +419,23 @@ function useAuth() {
         syncAt:       json.syncAt       ?? null,
         syncAppareil: json.syncAppareil ?? null,
       };
-    } catch { return { found: false }; }
+    } catch (e) {
+      logSync({ op:'pull', ok:false, code, error: String(e?.message || e), before });
+      return { found: false };
+    }
   }, []);
 
   /* ── Envoyer localStorage → Notion ── */
   const syncToNotion = useCallback(async (code, familyName, pageId, syncVersion, silent=false) => {
     if (!code) return;
     if (!silent) { setSyncStatus('syncing'); setSyncMsg('Synchronisation…'); }
+    const before = snapshotSizes();
     try {
       const data = {};
+      const sent = {};
       for (const key of SYNC_KEYS) {
         const val = localStorage.getItem(key);
-        if (val) data[key] = val;
+        if (val) { data[key] = val; sent[key] = val.length; }
       }
       const r = await fetch('/api/family/save', {
         method: 'POST',
@@ -392,6 +459,21 @@ function useAuth() {
         const app = json.syncAppareil ? ` (${json.syncAppareil})` : '';
         setSyncMsg(`Synchronisé ${new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}${app}`);
         setTimeout(() => setSyncStatus('idle'), 4000);
+        // Empreinte du local au moment du push réussi → utilisée par la garde anti-écrasement au focus
+        try { localStorage.setItem('tn_lastpush_fp', JSON.stringify(snapshotSizes().sizes)); } catch {}
+        logSync({
+          op:'push', ok:true, code,
+          silent,
+          page_id:        json.pageId,
+          new_version:    json.syncVersion,
+          previous_version: syncVersion ?? 0,
+          device:         json.syncAppareil,
+          sync_at:        json.syncAt,
+          keys_sent:      Object.keys(sent).length,
+          sent_sizes:     sent,
+          total_sent:     Object.values(sent).reduce((a,b)=>a+b,0),
+          before,
+        });
         // Publication asynchrone dans les bases de visualisation Notion (fire & forget)
         try {
           const payload = buildPublishPayload();
@@ -403,9 +485,18 @@ function useAuth() {
         } catch {}
       } else {
         setSyncStatus('error'); setSyncMsg(`⚠ Sync échouée${json.details? ' — '+String(json.details).slice(0,60) : ''}`);
+        logSync({
+          op:'push', ok:false, code, silent,
+          error: json.error || 'unknown',
+          details: json.details ? String(json.details).slice(0,500) : null,
+          keys_sent: Object.keys(sent).length,
+          sent_sizes: sent,
+          before,
+        });
       }
-    } catch {
+    } catch (e) {
       setSyncStatus('error'); setSyncMsg('Erreur réseau — données conservées localement');
+      logSync({ op:'push', ok:false, code, silent, error: String(e?.message || e), before });
     }
   }, []);
 
@@ -449,12 +540,20 @@ function useAuth() {
     return () => clearInterval(t);
   }, [session, syncToNotion]);
 
-  /* ── Au focus : PULL depuis Notion si cloud plus récent, sinon PUSH ── */
+  /* ── Au focus : PULL depuis Notion si cloud plus récent, sinon PUSH ──
+     ⚠️ GARDE DE SÉCURITÉ : si le local a été modifié depuis la dernière sync
+     confirmée (détecté via tn_lastpush_hash), on ne pull JAMAIS aveuglément.
+     On push d'abord, on laisse Notion résoudre le conflit côté serveur. */
   useEffect(() => {
     if (session?.mode !== 'account') return;
     const onFocus = async () => {
       try {
-        // 1. Interroger Notion pour connaître la version cloud actuelle
+        // 1. Calculer l'empreinte du local actuel
+        const localFingerprint = JSON.stringify(snapshotSizes().sizes);
+        const lastPushFingerprint = localStorage.getItem('tn_lastpush_fp') || '';
+        const localHasUnsavedChanges = localFingerprint !== lastPushFingerprint;
+
+        // 2. Interroger Notion pour connaître la version cloud actuelle
         const r = await fetch(`/api/family/load?code=${encodeURIComponent(session.code)}&versionOnly=1`);
         if (!r.ok) {
           // Réseau indisponible → push local silencieux
@@ -465,18 +564,28 @@ function useAuth() {
         const cloudVersion = json.syncVersion ?? 0;
         const localVersion = session.syncVersion ?? 0;
 
-        if (cloudVersion > localVersion) {
-          // Cloud plus récent → PULL : écraser le local avec Notion
+        if (cloudVersion > localVersion && !localHasUnsavedChanges) {
+          // Cloud plus récent ET local non modifié → PULL safe
           const meta = await loadFromNotion(session.code);
           if (meta.found) {
             const updatedSess = s => s ? { ...s, ...meta } : s;
             setSession(updatedSess);
             const stored = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
             if (stored) localStorage.setItem(SESSION_KEY, JSON.stringify(updatedSess(stored)));
+            // Mettre à jour l'empreinte après pull
+            localStorage.setItem('tn_lastpush_fp', JSON.stringify(snapshotSizes().sizes));
             setSyncStatus('synced');
             setSyncMsg(`↓ Rechargé depuis ${meta.syncAppareil || 'cloud'} (v${cloudVersion})`);
             setTimeout(() => setSyncStatus('idle'), 5000);
           }
+        } else if (cloudVersion > localVersion && localHasUnsavedChanges) {
+          // Conflit potentiel : on push d'abord pour ne pas perdre les modifs locales
+          logSync({
+            op:'focus_conflict', code: session.code,
+            cloud_version: cloudVersion, local_version: localVersion,
+            decision: 'push_first_to_protect_local_changes',
+          });
+          syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
         } else {
           // Local à jour ou plus récent → PUSH silencieux
           syncToNotion(session.code, session.familyName, session.pageId, session.syncVersion, true);
@@ -496,9 +605,10 @@ function useAuth() {
     const onBeforeUnload = () => {
       // Utiliser sendBeacon pour garantir l'envoi même en cours de fermeture
       const data = {};
+      const sent = {};
       for (const key of SYNC_KEYS) {
         const val = localStorage.getItem(key);
-        if (val) data[key] = val;
+        if (val) { data[key] = val; sent[key] = val.length; }
       }
       const payload = JSON.stringify({
         code:        session.code,
@@ -508,7 +618,13 @@ function useAuth() {
         data,
       });
       // sendBeacon : fonctionne même quand la page se ferme
-      navigator.sendBeacon('/api/family/save', new Blob([payload], { type: 'application/json' }));
+      const ok = navigator.sendBeacon('/api/family/save', new Blob([payload], { type: 'application/json' }));
+      logSync({
+        op:'beacon', ok, code: session.code,
+        keys_sent: Object.keys(sent).length,
+        sent_sizes: sent,
+        previous_version: session.syncVersion ?? 0,
+      });
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     window.addEventListener('pagehide', onBeforeUnload); // iOS Safari
@@ -518,12 +634,16 @@ function useAuth() {
     };
   }, [session]);
 
-  const loginGuest = useCallback(() => saveSession({ mode: 'guest' }), [saveSession]);
+  const loginGuest = useCallback(() => {
+    logSync({ op:'login', mode:'guest' });
+    saveSession({ mode: 'guest' });
+  }, [saveSession]);
 
   const loginAccount = useCallback(async (rawCode, familyName) => {
     const code = rawCode.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,16);
     if (code.length < 4) return { ok:false, error:'Le code famille doit contenir au moins 4 caractères.' };
     setLoading(true);
+    const before = snapshotSizes();
     const meta = await loadFromNotion(code);
     const sess = {
       mode: 'account',
@@ -536,6 +656,15 @@ function useAuth() {
     };
     saveSession(sess);
     setLoading(false);
+    logSync({
+      op:'login', mode:'account', code,
+      family_name: sess.familyName,
+      cloud_found: meta.found ? true : false,
+      cloud_version: meta.syncVersion ?? 0,
+      cloud_device: meta.syncAppareil ?? null,
+      local_before: before,
+      local_after: snapshotSizes(),
+    });
     return { ok:true };
   }, [loadFromNotion, saveSession]);
 
@@ -3234,6 +3363,342 @@ function DashPage({setTab,db,cafAids,family,navigateTo,setFamilyOpen,setExportOp
   </div>);
 }
 
+/* ══════════════════════════════════════════════════════════════
+   DIAGNOSTIC PANEL — Menu caché de contrôle des sauvegardes
+   Accès : 5 taps rapides sur le logo "Baby Essentials" (en moins de 2s)
+   Affiche : journal de sync · état des données · health Notion · actions
+   ══════════════════════════════════════════════════════════════ */
+function DiagnosticPanel({ auth, onClose }) {
+  const [log, setLog]         = useState(() => readSyncLog());
+  const [filter, setFilter]   = useState('all'); // all | push | pull | error
+  const [snap, setSnap]       = useState(() => snapshotSizes());
+  const [tab, setTab]         = useState('log'); // log | data | actions
+  const [selectedEntry, setSE]= useState(null);
+  const [actionMsg, setAM]    = useState(null);
+
+  const refresh = useCallback(() => {
+    setLog(readSyncLog());
+    setSnap(snapshotSizes());
+  }, []);
+
+  // Auto-refresh chaque 2s tant que panneau ouvert
+  useEffect(() => {
+    const t = setInterval(refresh, 2000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  const filtered = log.filter(e => {
+    if (filter === 'all')    return true;
+    if (filter === 'error')  return e.ok === false;
+    if (filter === 'push')   return e.op === 'push' || e.op === 'beacon';
+    if (filter === 'pull')   return e.op === 'pull';
+    return true;
+  });
+
+  const stats = useMemo(() => {
+    const ok    = log.filter(e => e.ok === true).length;
+    const ko    = log.filter(e => e.ok === false).length;
+    const pulls = log.filter(e => e.op === 'pull').length;
+    const pushes= log.filter(e => e.op === 'push' || e.op === 'beacon').length;
+    return { ok, ko, pulls, pushes };
+  }, [log]);
+
+  const lastPush = log.find(e => (e.op === 'push' || e.op === 'beacon') && e.ok);
+  const lastPull = log.find(e => e.op === 'pull' && e.ok && e.cloud_version);
+  const lastError= log.find(e => e.ok === false);
+
+  function downloadLog() {
+    const dump = {
+      _exported_at: new Date().toISOString(),
+      _session: auth?.session ? {
+        mode: auth.session.mode,
+        code: auth.session.code,
+        familyName: auth.session.familyName,
+        syncVersion: auth.session.syncVersion,
+        syncAt: auth.session.syncAt,
+        syncAppareil: auth.session.syncAppareil,
+      } : null,
+      _local_state: snap,
+      _local_keys: Object.fromEntries(SYNC_KEYS.map(k => {
+        const v = localStorage.getItem(k);
+        let parsed = v;
+        try { parsed = v ? JSON.parse(v) : null; } catch {}
+        return [k, parsed];
+      })),
+      _sync_log: log,
+    };
+    const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `babyessentials-diag-${new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function forcePull() {
+    setAM('Rechargement depuis Notion…');
+    try { await auth.forceReloadFromCloud(); setAM('✓ Rechargé'); }
+    catch { setAM('✗ Échec rechargement'); }
+    setTimeout(() => setAM(null), 3000);
+    refresh();
+  }
+  function forcePush() {
+    setAM('Envoi vers Notion…');
+    try { auth.manualSync(); setAM('✓ Envoyé'); }
+    catch { setAM('✗ Échec envoi'); }
+    setTimeout(() => setAM(null), 3000);
+    refresh();
+  }
+  function runHealth() {
+    setAM('Test de santé Notion…');
+    try { auth.runHealthCheck(); setAM('✓ Test lancé'); }
+    catch { setAM('✗ Échec'); }
+    setTimeout(() => setAM(null), 3000);
+  }
+  function clearLog() {
+    if (!window.confirm('Effacer tout le journal de synchronisation ?\n\nCela ne supprime pas vos données — uniquement l\'historique des sauvegardes.')) return;
+    clearSyncLog(); refresh();
+  }
+
+  const fmt = ts => {
+    try {
+      const d = new Date(ts);
+      return d.toLocaleString('fr-FR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+    } catch { return ts; }
+  };
+  const fmtSize = n => n < 1024 ? `${n} o` : `${(n/1024).toFixed(1)} Ko`;
+  const opEmoji = e => {
+    if (e.op === 'push' || e.op === 'beacon') return e.ok ? '⬆️' : '⚠️';
+    if (e.op === 'pull')   return e.ok ? '⬇️' : '⚠️';
+    if (e.op === 'login')  return '🔑';
+    if (e.op === 'focus_conflict') return '⚡';
+    return '·';
+  };
+  const opLabel = e => {
+    if (e.op === 'push')   return 'Envoi';
+    if (e.op === 'beacon') return 'Envoi (fermeture)';
+    if (e.op === 'pull')   return 'Réception';
+    if (e.op === 'login')  return e.mode === 'guest' ? 'Connexion invité' : 'Connexion compte';
+    if (e.op === 'focus_conflict') return 'Conflit détecté';
+    return e.op;
+  };
+
+  return (
+    <div className="mbd fi" onClick={onClose}>
+      <div className="msh su" onClick={e=>e.stopPropagation()} style={{maxWidth:600, maxHeight:'92vh'}}>
+        {/* Header */}
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:12,paddingBottom:10,borderBottom:'1px solid var(--g200)'}}>
+          <div>
+            <h3 style={{fontFamily:'var(--fs)',fontSize:19,display:'flex',alignItems:'center',gap:8}}>
+              🛠️ Diagnostic
+              <span style={{fontSize:9.5,padding:'2px 7px',borderRadius:99,background:'var(--g100)',color:'var(--g600)',fontWeight:700,letterSpacing:.3}}>menu caché</span>
+            </h3>
+            <p style={{fontSize:11,color:'var(--g400)',marginTop:3}}>
+              Contrôle des sauvegardes · {log.length} entrée{log.length>1?'s':''} de journal
+            </p>
+          </div>
+          <button className="btn bg" onClick={onClose} style={{fontSize:21,padding:'0 4px'}}>×</button>
+        </div>
+
+        {/* Status bar */}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:6,marginBottom:12}}>
+          {[
+            ['✅', stats.ok,    'Réussies',  'var(--sa-p)', 'var(--gr)'],
+            ['❌', stats.ko,    'Échouées',  'var(--rd-p)', 'var(--rd)'],
+            ['⬆️', stats.pushes,'Envois',    'var(--aq-p)', 'var(--aq)'],
+            ['⬇️', stats.pulls, 'Réceptions','var(--pe-p)', 'var(--pe)'],
+          ].map(([e,n,l,bg,c],i)=>(
+            <div key={i} style={{textAlign:'center',padding:'8px 4px',background:bg,borderRadius:'var(--r1)'}}>
+              <div style={{fontSize:14}}>{e}</div>
+              <div style={{fontSize:18,fontWeight:800,color:c}}>{n}</div>
+              <div style={{fontSize:9,color:'var(--g600)',fontWeight:700}}>{l}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Last events summary */}
+        <div style={{padding:'10px 12px',background:'var(--g50)',borderRadius:'var(--r1)',marginBottom:12,fontSize:11.5,lineHeight:1.7}}>
+          {lastPush && <div>⬆️ <b>Dernier envoi réussi :</b> {fmt(lastPush.ts)} · v{lastPush.new_version} · {lastPush.device || '?'} · {fmtSize(lastPush.total_sent || 0)}</div>}
+          {lastPull && <div>⬇️ <b>Dernière réception :</b> {fmt(lastPull.ts)} · v{lastPull.cloud_version} · de {lastPull.cloud_device || '?'} · {lastPull.writes_count} clé(s) écrite(s)</div>}
+          {lastError && <div style={{color:'var(--rd)'}}>⚠️ <b>Dernière erreur :</b> {fmt(lastError.ts)} · {lastError.error?.slice(0,80) || 'erreur inconnue'}</div>}
+          {!lastPush && !lastPull && !lastError && <div style={{color:'var(--g400)'}}>Aucune opération de sync enregistrée pour le moment.</div>}
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:'flex',gap:5,marginBottom:10}}>
+          {[['log','📋 Journal'],['data','💾 Données locales'],['actions','⚡ Actions']].map(([k,l])=>(
+            <button key={k} onClick={()=>setTab(k)}
+              style={{flex:1,padding:'7px 4px',borderRadius:'var(--r1)',border:'none',cursor:'pointer',
+                fontSize:11.5,fontWeight:700,
+                background: tab===k?'var(--aq)':'var(--g100)',
+                color:      tab===k?'var(--wh)':'var(--g600)'}}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        {/* TAB : LOG */}
+        {tab==='log' && (
+          <>
+            <div style={{display:'flex',gap:5,marginBottom:8,flexWrap:'wrap'}}>
+              {[['all','Tout'],['push','Envois'],['pull','Réceptions'],['error','Erreurs']].map(([k,l])=>(
+                <button key={k} onClick={()=>setFilter(k)}
+                  style={{padding:'4px 10px',borderRadius:99,border:'1.5px solid',fontSize:10.5,fontWeight:700,cursor:'pointer',
+                    borderColor: filter===k?'var(--aq)':'var(--g200)',
+                    background:  filter===k?'var(--aq-p)':'var(--wh)',
+                    color:       filter===k?'var(--aq)':'var(--g600)'}}>
+                  {l}
+                </button>
+              ))}
+              <button onClick={refresh} style={{padding:'4px 10px',borderRadius:99,border:'1.5px solid var(--g200)',fontSize:10.5,fontWeight:700,cursor:'pointer',background:'var(--wh)',color:'var(--g600)',marginLeft:'auto'}}>
+                🔄 Actualiser
+              </button>
+            </div>
+            <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexDirection:'column',gap:5}}>
+              {filtered.length === 0 ? (
+                <p style={{textAlign:'center',padding:'20px 0',fontSize:12,color:'var(--g400)'}}>Aucune entrée à afficher.</p>
+              ) : filtered.map((e,i)=>(
+                <div key={i} onClick={()=>setSE(selectedEntry===i?null:i)}
+                  style={{padding:'8px 10px',borderRadius:'var(--r1)',border:`1px solid ${e.ok===false?'rgba(212,82,82,.3)':'var(--g200)'}`,
+                    background: e.ok===false?'var(--rd-p)':'var(--wh)',
+                    cursor:'pointer'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:6}}>
+                    <div style={{display:'flex',gap:6,alignItems:'center',minWidth:0,flex:1}}>
+                      <span style={{fontSize:13}}>{opEmoji(e)}</span>
+                      <span style={{fontSize:11.5,fontWeight:700,color: e.ok===false?'var(--rd)':'var(--g800)'}}>{opLabel(e)}</span>
+                      {e.silent && <span style={{fontSize:9,padding:'1px 5px',borderRadius:99,background:'var(--g100)',color:'var(--g600)',fontWeight:700}}>auto</span>}
+                      {e.new_version && <span style={{fontSize:9,padding:'1px 5px',borderRadius:99,background:'var(--aq-p)',color:'var(--aq)',fontWeight:700}}>v{e.new_version}</span>}
+                      {e.cloud_version && <span style={{fontSize:9,padding:'1px 5px',borderRadius:99,background:'var(--pe-p)',color:'var(--pe)',fontWeight:700}}>v{e.cloud_version}</span>}
+                      {e.device && <span style={{fontSize:10,color:'var(--g600)'}}>· {e.device}</span>}
+                      {e.cloud_device && <span style={{fontSize:10,color:'var(--g600)'}}>· {e.cloud_device}</span>}
+                    </div>
+                    <span style={{fontSize:9.5,color:'var(--g400)',whiteSpace:'nowrap'}}>{fmt(e.ts)}</span>
+                  </div>
+                  {e.ok === false && e.error && (
+                    <p style={{fontSize:10.5,color:'var(--rd)',marginTop:3}}>⚠ {String(e.error).slice(0,140)}</p>
+                  )}
+                  {e.op==='push' && e.ok && (
+                    <p style={{fontSize:10,color:'var(--g400)',marginTop:2}}>{e.keys_sent} clé(s) · {fmtSize(e.total_sent || 0)}</p>
+                  )}
+                  {e.op==='pull' && e.ok && (
+                    <p style={{fontSize:10,color:'var(--g400)',marginTop:2}}>{e.writes_count||0} écrite(s) · {e.skips_count||0} conservée(s) localement</p>
+                  )}
+                  {selectedEntry === i && (
+                    <pre style={{marginTop:7,padding:'8px 10px',background:'var(--g50)',borderRadius:6,fontSize:10,lineHeight:1.55,overflow:'auto',maxHeight:200,whiteSpace:'pre-wrap',wordBreak:'break-all'}}>
+{JSON.stringify(e, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        {/* TAB : DONNÉES LOCALES */}
+        {tab==='data' && (
+          <div style={{maxHeight:380,overflowY:'auto'}}>
+            <p style={{fontSize:11,color:'var(--g600)',marginBottom:8}}>
+              Taille de chaque clé dans le navigateur ({fmtSize(snap.total)} au total) :
+            </p>
+            {SYNC_KEYS.map(k=>{
+              const size = snap.sizes[k] || 0;
+              const empty = size === 0;
+              const labels = {
+                'cl6':'🧳 Valise — Cochés','cl6x':'🧳 Valise — Articles perso','cl6h':'🧳 Valise — Masqués',
+                'hm6':'🏠 Maison — Cochés','hm6x':'🏠 Maison — Articles perso','hm6h':'🏠 Maison — Masqués',
+                'tl6':'📊 Journal quotidien',
+                'tn_family_v6':'👨‍👩‍👧 Fiche famille','tn_declared_v6':'💶 Budget','tn_caf_v6':'💰 Aides CAF',
+                'tn_ov_v6':'✏️ Modifications','tn_au_v6':'📝 Audit éditions',
+              };
+              return (
+                <div key={k} style={{display:'flex',justifyContent:'space-between',padding:'7px 10px',borderRadius:6,marginBottom:3,
+                  background: empty?'var(--g50)':'var(--wh)',
+                  border: '1px solid var(--g200)'}}>
+                  <span style={{fontSize:11.5,color: empty?'var(--g400)':'var(--g800)'}}>
+                    {labels[k] || k} <code style={{fontSize:9,color:'var(--g400)',marginLeft:4}}>{k}</code>
+                  </span>
+                  <span style={{fontSize:11,fontWeight:700,color: empty?'var(--g400)':'var(--g800)'}}>
+                    {empty ? 'vide' : fmtSize(size)}
+                  </span>
+                </div>
+              );
+            })}
+            {auth?.session?.mode === 'account' && (
+              <div style={{marginTop:12,padding:'10px 12px',background:'var(--aq-p)',borderRadius:'var(--r1)',fontSize:11.5,lineHeight:1.6}}>
+                <p><b>Compte :</b> {auth.session.familyName} ({auth.session.code})</p>
+                <p><b>Version locale :</b> v{auth.session.syncVersion ?? 0}</p>
+                <p><b>Dernière sync :</b> {auth.session.syncAt ? fmt(auth.session.syncAt) : '—'}</p>
+                <p><b>Dernier appareil :</b> {auth.session.syncAppareil || '—'}</p>
+                {auth.session.pageId && <p style={{wordBreak:'break-all'}}><b>Page Notion :</b> <code style={{fontSize:10}}>{auth.session.pageId}</code></p>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB : ACTIONS */}
+        {tab==='actions' && (
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {actionMsg && (
+              <div style={{padding:'8px 12px',background:'var(--aq-p)',borderRadius:'var(--r1)',fontSize:11.5,fontWeight:700,color:'var(--aq)'}}>
+                {actionMsg}
+              </div>
+            )}
+            <button className="btn bs" onClick={runHealth} style={{justifyContent:'flex-start',gap:10,padding:'12px 14px'}}>
+              <span style={{fontSize:18}}>🩺</span>
+              <span style={{flex:1,textAlign:'left'}}>
+                <div style={{fontSize:13,fontWeight:700}}>Tester la santé de Notion</div>
+                <div style={{fontSize:10.5,color:'var(--g400)'}}>Vérifie le token et l'accès à la base de données</div>
+                {auth?.healthStatus && (
+                  <div style={{fontSize:10.5,marginTop:2,color: auth.healthStatus==='ok'?'var(--gr)':auth.healthStatus==='error'?'var(--rd)':'var(--g400)'}}>
+                    Dernier résultat : {auth.healthStatus === 'ok' ? '✓' : auth.healthStatus === 'error' ? '✗' : '…'} {auth.healthDetail}
+                  </div>
+                )}
+              </span>
+            </button>
+            {auth?.session?.mode === 'account' && (
+              <>
+                <button className="btn bs" onClick={forcePush} style={{justifyContent:'flex-start',gap:10,padding:'12px 14px'}}>
+                  <span style={{fontSize:18}}>⬆️</span>
+                  <span style={{flex:1,textAlign:'left'}}>
+                    <div style={{fontSize:13,fontWeight:700}}>Forcer un envoi vers Notion</div>
+                    <div style={{fontSize:10.5,color:'var(--g400)'}}>Pousse l'état actuel du local vers le cloud</div>
+                  </span>
+                </button>
+                <button className="btn bs" onClick={forcePull} style={{justifyContent:'flex-start',gap:10,padding:'12px 14px',borderColor:'rgba(212,154,40,.4)'}}>
+                  <span style={{fontSize:18}}>⬇️</span>
+                  <span style={{flex:1,textAlign:'left'}}>
+                    <div style={{fontSize:13,fontWeight:700}}>Forcer une réception depuis Notion</div>
+                    <div style={{fontSize:10.5,color:'var(--am)'}}>⚠ Écrase le local avec les données du cloud</div>
+                  </span>
+                </button>
+              </>
+            )}
+            <button className="btn bs" onClick={downloadLog} style={{justifyContent:'flex-start',gap:10,padding:'12px 14px'}}>
+              <span style={{fontSize:18}}>💾</span>
+              <span style={{flex:1,textAlign:'left'}}>
+                <div style={{fontSize:13,fontWeight:700}}>Télécharger le rapport diagnostic</div>
+                <div style={{fontSize:10.5,color:'var(--g400)'}}>JSON complet : journal + données + état</div>
+              </span>
+            </button>
+            <button className="btn bs" onClick={clearLog} style={{justifyContent:'flex-start',gap:10,padding:'12px 14px',borderColor:'rgba(212,82,82,.3)'}}>
+              <span style={{fontSize:18}}>🗑️</span>
+              <span style={{flex:1,textAlign:'left'}}>
+                <div style={{fontSize:13,fontWeight:700,color:'var(--rd)'}}>Effacer le journal de sync</div>
+                <div style={{fontSize:10.5,color:'var(--g400)'}}>Ne touche pas aux données métier</div>
+              </span>
+            </button>
+          </div>
+        )}
+
+        <div style={{marginTop:14,paddingTop:10,borderTop:'1px solid var(--g200)',fontSize:10,color:'var(--g400)',textAlign:'center'}}>
+          Menu caché · Accès via 5 taps rapides sur le logo
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ══════ ROOT ══════ */
 const TABS=[{id:"dashboard",l:"Accueil",e:"🏡"},{id:"aides",l:"Aides",e:"💰"},{id:"clinic",l:"Valise",e:"🧳"},{id:"home",l:"Maison",e:"🏠"},{id:"tracker",l:"Journal",e:"📊"}];
 
@@ -3269,12 +3734,27 @@ function MainApp({ auth }) {
   const[exportOpen,setExportOpen]=useState(false);
   const[accountOpen,setAccountOpen]=useState(false);
   const[dataOpen,setDataOpen]=useState(false);
+  const[diagOpen,setDiagOpen]=useState(false);
   const[autoOpenCats,setAutoOpenCats]=useState({});
+
+  /* ── Détection 5 taps rapides sur le logo → ouvre le diagnostic ── */
+  const tapsRef = useState(() => ({ count: 0, first: 0 }))[0];
+  const onLogoTap = useCallback(() => {
+    const now = Date.now();
+    if (now - tapsRef.first > 2000) { tapsRef.count = 0; tapsRef.first = now; }
+    tapsRef.count += 1;
+    if (tapsRef.count >= 5) {
+      tapsRef.count = 0;
+      tapsRef.first = 0;
+      setDiagOpen(true);
+    }
+  }, [tapsRef]);
 
   /* Pont window → AccountModal "Mes données" */
   useEffect(()=>{
     window._openDataModal = () => setDataOpen(true);
-    return () => { delete window._openDataModal; };
+    window._openDiagnostic = () => setDiagOpen(true);
+    return () => { delete window._openDataModal; delete window._openDiagnostic; };
   },[]);
   const navigateTo=useCallback((tabId,catId)=>{setTab(tabId);if(catId)setAutoOpenCats(p=>({...p,[tabId]:catId}))},[]);
   const clearAutoOpen=useCallback(tabId=>setAutoOpenCats(p=>({...p,[tabId]:null})),[]);
@@ -3301,7 +3781,7 @@ function MainApp({ auth }) {
 
       {/* ── Top bar ── */}
       <div style={{position:"sticky",top:0,zIndex:50,background:"rgba(253,250,247,.92)",backdropFilter:"blur(20px)",borderBottom:"1px solid rgba(255,255,255,.6)",padding:"8px 14px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <div onClick={onLogoTap} style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}} title="Baby Essentials">
           <div style={{width:26,height:26,borderRadius:8,background:"linear-gradient(135deg,var(--aq),var(--pe))",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13}}>👶</div>
           <span style={{fontFamily:"var(--fs)",fontSize:15}}>Baby Essentials</span>
         </div>
@@ -3347,6 +3827,7 @@ function MainApp({ auth }) {
       {exportOpen &&<ExportModal  onClose={()=>setExportOpen(false)} family={family} db={db} cafAids={cafAids}/>}
       {accountOpen&&<AccountModal auth={auth} onClose={()=>setAccountOpen(false)}/>}
       {dataOpen   &&<DataModal    auth={auth} onClose={()=>setDataOpen(false)}/>}
+      {diagOpen   &&<DiagnosticPanel auth={auth} onClose={()=>setDiagOpen(false)}/>}
     </div>
   </>);
 }
